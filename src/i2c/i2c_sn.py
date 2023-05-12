@@ -1,5 +1,6 @@
 import numpy as np, logging, time, struct
-import collections,crcmod
+import crcmod
+from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class DS28CM00:
     def crc8(self,data,poly=0x131,initVal=0):
 
         crc = initVal
-        if isinstance(data,collections.Iterable):
+        if isinstance(data, Iterable):
             for d in data:
                 crc = self.crc8(d,poly,crc)
             return crc
