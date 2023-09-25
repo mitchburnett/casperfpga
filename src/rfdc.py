@@ -364,12 +364,33 @@ class RFDC(object):
 
     return True
 
-  def run_mts(self, tile_mask, target_latency=None):
+  def run_mts(self, tile_mask=15, target_latency=None):
     """
-    Execute multi-tile synchronization (MTS) to synchronize tiles set by "tile_mask".
+    Execute multi-tile synchronization (MTS) to synchronize ADC tiles set by "tile_mask".
     Optionally request to synch with latency specified by "target_latency".
+
+    Args:
+      mask (int): bitmask for selecting which tiles to sync, defaults to all tiles 0x1111 = 15. LSB is ADC Tile 0.
+      target_latency (int): requested target latency
+
+    Returns:
+      True if completes successfuly
+
+    Raises:
+      KatcpRequestFail if KatcpTransport encounters an error
     """
-    raise NotImplemented()
+
+    if target_latency is not None:
+      print("WARN: 'target_latency' not yet implemented, this argument is ignored")
+
+    t = self.parent.transport
+    self.mts_report = []
+    args = (tile_mask,)
+    reply, informs = t.katcprequest(name='rfdc-run-mts', request_timeout=t._timeout, request_args=args)
+    for i in informs:
+      self.mts_report.append(i)
+
+    return True
 
   def get_mts_report(self):
     """
@@ -377,7 +398,67 @@ class RFDC(object):
 
     Returns information such as latency on each tile, delay maker, delay bit
     """
-    raise NotImplemented()
+    for m in self.mts_report:
+      print(m)
+
+    return True
+
+  def update_nco_mts(self, adc_mask, dac_mask, freq):
+    """
+    Program updates NCOs on board while maintaining mts
+
+    Args:
+      adc_mask (int): 16 bits indicating what ADCs to set. LSB is ADC 00
+      dac_mask (int): 16 bits indicating what DACs to set. LSB is DAC 00
+      freq (float): frequency in MHz to set the nco to
+
+    Returns:
+      True if completes successfuly
+
+    Raises:
+      KatcpRequestFail if KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+    args = (adc_mask, dac_mask, freq,)
+    reply, informs = t.katcprequest(name='rfdc-update-nco-mts', request_timeout=t._timeout, request_args=args)
+    for i in informs:
+      print(i)
+    return True
+
+  def report_mixer_status(self, adc_mask, dac_mask):
+    """
+    Retrieves mixer settings from rfdc
+
+    Args:
+      adc_mask (int): 16 bits indicating what ADCs to report. LSB is ADC 00
+      dac_mask (int): 16 bits indicating what DACs to report. LSB is DAC 00
+
+    Returns:
+      True if completes successfuly
+
+    Raises:
+      KatcpRequestFail if KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+    for tile in range(0,4):
+      for blk in range(0,4):
+        if (adc_mask >> (tile*4+blk)) & 1:
+          args = (tile, blk, "adc")
+          reply, informs = t.katcprequest(name='rfdc-report-mixer', request_timeout=t._timeout, request_args=args)
+          print("ADC {:d} {:d} mixer settings:".format(tile,blk))
+          for i in informs:
+            print("\t" + i.arguments[0].decode())
+
+    for tile in range(0,4):
+      for blk in range(0,4):
+        if (dac_mask >> (tile*4+blk)) & 1:
+          args = (tile, blk, "dac")
+          reply, informs = t.katcprequest(name='rfdc-report-mixer', request_timeout=t._timeout, request_args=args)
+          print("DAC {:d} {:d} mixer settings:".format(tile,blk))
+          for i in informs:
+            print("\t" + i.arguments[0].decode())
+
+    return True
 
   def get_adc_snapshot(self, ntile, nblk):
     """
