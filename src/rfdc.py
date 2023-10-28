@@ -315,6 +315,26 @@ class RFDC(object):
     return True
 
 
+  def get_ams_sensors(self):
+    """
+    Returns processor systems AMS sensors scaled and converted to its respective unit.
+
+    :return: A dictionary of sensor name and current sensor value as float
+    :rtype: dict[str, float]
+
+    :raises KatcprequestFail: If KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+
+    reply, informs = t.katcprequest(name='rfsoc-sensors', request_timeout=t._timeout)
+    sensors = {}
+    for i in informs:
+      s = i.arguments[0].decode().split(':')
+      sensors[s[0]] = float(s[1])
+
+    return sensors
+
+
   def get_dsa(self):
     """
     Reports digital step attenuator (DSA) values for all enabled ADCs and ADC blocks.
