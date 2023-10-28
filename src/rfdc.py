@@ -7,48 +7,23 @@ LOGGER = logging.getLogger(__name__)
 
 class RFDC(object):
   """
-  Casperfpga rfdc
-
+  Casperfpga class encapsulating the rfdc Yellow Block
   """
 
   LMK = 'lmk'
   LMX = 'lmx'
-
-  class tile(object):
-    pass
-
-  class adc_slice(object):
-    pass
-
-  @classmethod
-  def from_device_info(cls, parent, device_name, device_info, initialise=False, **kwargs):
-    """
-    Process device info and the memory map to get all the necessary info
-    and return a SNAP ADC instance.
-    :param parent: The parent device, normally a casperfpga instance
-    :param device_name:
-    :param device_info:
-    :param initialise:
-    :param kwargs:
-    :return:
-    """
-    return cls(parent, device_name, device_info, initialise, **kwargs)
 
   ADC0_OFFSET = 0x14000
   ADC1_OFFSET = 0x18000
   ADC2_OFFSET = 0x1c000
   ADC3_OFFSET = 0x20000
 
-  """
-  Common control and status registers
-  """
+  # Common control and status registers
   VER_OFFSET = 0x0
   COMMON_MASTER_RST = 0x4
   COMMON_IRQ_STATUS = 0x100
 
-  """
-  Tile control and status registers
-  """
+  # Tile control and status registers
   RST_PO_STATE_MACHINE = 0x4
   RST_STATE_REG = 0x8
   CUR_STATE_REG = 0xc
@@ -67,6 +42,28 @@ class RFDC(object):
   SLICE3_IRQ_EN  = 0x224
   COMMON_STATUS_REG = 0x228
   TILE_DISABLE_REG = 0x230
+
+  class tile(object):
+    pass
+
+  class adc_slice(object):
+    pass
+
+  @classmethod
+  def from_device_info(cls, parent, device_name, device_info, initialise=False, **kwargs):
+    """
+    Process device info and the memory map to populate necessary class info
+    and return a RFDC instance.
+
+    :param parent: The parent device, normally a casperfpga instance
+    :param device_name:
+    :param device_info:
+    :param initialise:
+    :param kwargs:
+    :return:
+    """
+    return cls(parent, device_name, device_info, initialise, **kwargs)
+
 
   def __init__(self, parent, device_name, device_info, initialise=False):
     self.parent = parent
@@ -114,19 +111,22 @@ class RFDC(object):
 
   def init(self, lmk_file=None, lmx_file=None, upload=False):
     """
-    Initialize the rfdc driver, optionally program rfplls if file is present.
+    Initialize the rfdc driver, optionally program rfplls if file parameters are present.
 
-    Args:
-      lmk_file (string, optional): lmk tics hexdump (.txt) register file name
-      lmx_file (string, optional): lmx tics hexdump (.txt) register file name
-      upload (bool, optional): inidicate that the configuration files are local to the client and
+    :param lmk_file: lmk tics hexdump (.txt) register file name
+    :type lmk_file: str, optional
+
+    :param lmx_file: lmx tics hexdump (.txt) register file name
+    :type lmx_file: str, optional
+
+    :param upload: Inidicate that the configuration files are local to the client and
         should be uploaded to the remote, will overwrite if exists on remote filesystem
+    :type upload: bool, optional
 
-    Returns:
-      True if completed successfully
+    :return: `True` if completed successfully, `False` otherwise
+    :rtype: bool
 
-    Raises:
-      KatcpRequestFail if KatcpTransport encounters an error
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
     """
 
     if lmk_file:
@@ -139,6 +139,7 @@ class RFDC(object):
     reply, informs = t.katcprequest(name='rfdc-init', request_timeout=t._timeout)
 
     return True
+
 
   def apply_dto(self, dtbofile):
     """
@@ -169,18 +170,15 @@ class RFDC(object):
     else:
       return False
 
+
   def show_clk_files(self):
     """
-    Show a list of available remote clock register files to use for rfpll clock programming
+    Show a list of available remote clock register files to use for rfpll clock programming.
 
-    Args:
-      None
+    :return: A list of available clock register files.
+    :rtype: list
 
-    Returns:
-      List of available clock register files
-
-    Raises:
-      KatcpRequestFail if KatcpTransport encounters an error
+    :raises KatcpRequestFail: If KatcpTransport encounters an error.
     """
     t = self.parent.transport
     files = t.listbof()
@@ -194,38 +192,41 @@ class RFDC(object):
           #self.clkfiles.append(f)
     return clkfiles
 
+
   def del_clk_file(self, clkfname):
     """
-    Remove a rfpll configuration clock file from the remote filesystem
+    Remove an rfpll configuration clock file from the remote filesystem.
 
-    Args:
-      clkfname (string): name of clock configuration on remote filesystem
+    :param clkfname: Name of clock configuration on remote filesystem.
+    :type clkfname: str
 
-    Returns:
-      True if file removed successfully
+    :return: `True` if file removed successfully, `False` otherwise.
+    :rtype: bool
 
-    Raises:
-      KatcpRequestFail if KatcpTransport encounters an error
+    :raises KatcpRequestFail: If KatcpTransport encounters an error.
     """
     t = self.parent.transport
     args = (clkfname, )
     reply, informs = t.katcprequest(name='delbof', request_timeout=t._timeout, request_args=args)
     return True
 
+
   def upload_clk_file(self, fpath, port=None, force_upload=False):
     """
-    Upload a TICS hex dump register file to the fpga for programming
+    Upload a TICS hex dump (.txt) register file to the fpga for programming
 
-    Args:
-      fpath (string): path to a tics register configuration file
-      port (int, optional): port to use for upload, default to `None` using a random port.
-      force_upload (bool, optional): force to upload the file at `fpath`
+    :param fpath: Path to a TICS register configuration file.
+    :type fpath: str
+    :param port: Port to use for upload, default to `None` using a random port.
+    :type port: int, optional
+    :param force_upload: Force to upload the file at `fpath`.
+    :type force_uplaod: bool, optional
 
-    Returns:
-      True if `fpath` is uploaded successfuly or already exists on remote filesystem
+    :return: `True` if `fpath` is uploaded successfuly or already exists on
+        remote filesystem. `False` otherwise.
+    :rtype: bool
 
-    Raises:
-      KatcpRequestFail if KatcpTransport encounters an error
+    :raises KatcpRequestFail: If KatcpTransport encounters an error.
     """
     t = self.parent.transport
 
@@ -249,23 +250,28 @@ class RFDC(object):
   def progpll(self, plltype, fpath=None, upload=False, port=None):
     """
     Program target RFPLL named by `plltype` with tics hexdump (.txt) register file named by
-    `fpath`. Optionally upload the register file to the remote
+    `fpath`. Optionally upload the register file to the remote.
 
-    Args:
-      plltype (string): options are 'lmk' or 'lmx'
-      fpath (string, optional): local path to a tics hexdump register file, or the name of an
-        available remote tics register file, default is that tcpboprphserver will look for a file
-        called `rfpll.txt`
-      upload (bool): inidicate that the configuration file is local to the client and
+    :param plltype: Options are 'lmk' or 'lmx'
+    :type client: str
+
+    :param fpath: Local path to a tics hexdump register file, or the name of an
+        available remote tics register file, default is that tcpboprphserver will look
+        for a file called `rfpll.txt`.
+    :type fpath: str, optional
+
+    :param upload: Inidicate that the configuration file is local to the client and
         should be uploaded to the remote, this will overwrite any clock file on the remote
-        by the same name
-      port (int, optional): port to use for upload, default to `None` using a random port.
+        by the same name.
+    :type upload: bool, optional
 
-    Returns:
-      True if completes successfuly
+    :param port: Port number to use for upload, default is `None` and will use a random port.
+    :type port: int, optional
 
-    Raises:
-      KatcpRequestFail if KatcpTransport encounters an error
+    :return: `True` if completes successfuly, `False` otherwise.
+    :rtype: bool
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error.
     """
     t = self.parent.transport
 
@@ -274,16 +280,13 @@ class RFDC(object):
       print('not a valid pll type')
       return False
 
-
     if fpath:
       if upload:
         os.path.getsize(fpath)
         self.upload_clk_file(fpath, force_upload=True)
 
       fname = os.path.basename(fpath)
-
       args = (plltype, fname)
-
     else:
       args = (plltype,)
 
@@ -311,15 +314,15 @@ class RFDC(object):
 
     return True
 
+
   def get_dsa(self):
     """
-    Reports digital step attenuator (DSA) values for all enabled ADCs and ADC Blocks
+    Reports digital step attenuator (DSA) values for all enabled ADCs and ADC blocks.
 
-    Returns:
-      True when completes
+    :return: `True` when completes successfully, `False` otherwise
+    :rtype: bool
 
-    Raises:
-      KatcpRequestFail if KatcpTransport encounters an error
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
     """
     t = self.parent.transport
 
@@ -329,30 +332,32 @@ class RFDC(object):
 
     return True
 
+
   def set_dsa(self, ntile, nblk, atten_dB):
     """
     Set the digital step attenuator (DSA) of tile "ntile" and adc block "nblk" to the
-    value specified by atten_dB.
+    value specified by `atten_dB`.
 
     After write the attenuation value is read and displayed to show the actual value. If
-    a tile/blk pair result in a disabled a message is printed showing the pair as disabled and nothing
-    is done. For now, tbs and the rfdc driver handles much of the error handling.
+    a tile/blk pair result in a disabled a message is printed showing the pair as disabled
+    and nothing  is done. For now, TBS and the rfdc driver handles much of the error handling.
 
     ES1 silicon can command attenuation levels from 0-11 dB with a step of 0.5 dB. Production silicon
     can command to levels 0-27 dB with a step of 1.0 dB.
 
-    See PG 269 for more details on the DSA in the RFDC.
+    See Xilinx/AMD PG269 for more details on the DSA in the RFDC.
 
-    Args:
-      ntile (int): tile index of target block to apply attenuation, in the range (0-3)
-      nblk  (int): block index of target adc to apply attenuation, must be in the range (0- NUM_BLKS)
-      atten_dB (float): requested attenuation level
+    :param ntile: Tile index of target block to apply attenuation, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index of target adc to apply attenuation, must be in the range (0-NUM_BLKS)
+    :type nblk: int
+    :param atten_dB: Requested attenuation level
+    :type float:
 
-    Returns:
-      True when completes
+    :return: `True` if completes successfully, `False` otherwise
+    :rtype: bool
 
-    Raises:
-      KatcpRequestFail if KatcpTransport encounters an error
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
     """
     t = self.parent.transport
 
@@ -364,20 +369,22 @@ class RFDC(object):
 
     return True
 
+
   def run_mts(self, tile_mask=15, target_latency=None):
     """
     Execute multi-tile synchronization (MTS) to synchronize ADC tiles set by "tile_mask".
     Optionally request to synch with latency specified by "target_latency".
 
-    Args:
-      mask (int): bitmask for selecting which tiles to sync, defaults to all tiles 0x1111 = 15. LSB is ADC Tile 0.
-      target_latency (int): requested target latency
+    :param mask: Bitmask for selecting which tiles to sync, defaults to all tiles 0x1111 = 15. LSB is ADC Tile 0.
+    :type mask: int
 
-    Returns:
-      True if completes successfuly
+    :param target_latency: Requested target latency
+    :type target_latency: int
 
-    Raises:
-      KatcpRequestFail if KatcpTransport encounters an error
+    :return: `True` if completes successfuly, `False` otherwise
+    :rtype: bool
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
     """
 
     if target_latency is not None:
@@ -392,31 +399,40 @@ class RFDC(object):
 
     return True
 
+
   def get_mts_report(self):
     """
-    Get a detailed report of the most recent multi-tile synchronization run.
+    Prints a detailed report of the most recent multi-tile synchronization run. Including information
+    such as latency on each tile, delay maker, delay bit.
 
-    Returns information such as latency on each tile, delay maker, delay bit
+    :return: `True` if completes successfuly, `False` otherwise
+    :rtype: bool
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
     """
     for m in self.mts_report:
       print(m)
 
     return True
 
+
   def update_nco_mts(self, adc_mask, dac_mask, freq):
     """
-    Program updates NCOs on board while maintaining mts
+    Program and updates NCOs on board while maintaining multi-tile synchronization.
 
-    Args:
-      adc_mask (int): 16 bits indicating what ADCs to set. LSB is ADC 00
-      dac_mask (int): 16 bits indicating what DACs to set. LSB is DAC 00
-      freq (float): frequency in MHz to set the nco to
+    :param adc_mask: 16 bits indicating what ADCs to set. LSB is ADC 00
+    :type adc_mask: int
 
-    Returns:
-      True if completes successfuly
+    :param dac_mask: 16 bits indicating what DACs to set. LSB is DAC 00
+    :type dac_mask: int
 
-    Raises:
-      KatcpRequestFail if KatcpTransport encounters an error
+    :param freq: Frequency in MHz to set the NCO to
+    :type freq: float
+
+    :return: `True` if completes successfuly, `False` otherwise
+    :rtype: bool
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
     """
     t = self.parent.transport
     args = (adc_mask, dac_mask, freq,)
@@ -425,19 +441,21 @@ class RFDC(object):
       print(i)
     return True
 
+
   def report_mixer_status(self, adc_mask, dac_mask):
     """
-    Retrieves mixer settings from rfdc
+    Retrieves and reports mixer settings from rfdc.
 
-    Args:
-      adc_mask (int): 16 bits indicating what ADCs to report. LSB is ADC 00
-      dac_mask (int): 16 bits indicating what DACs to report. LSB is DAC 00
+    :param adc_mask: 16 bits indicating what ADCs to set. LSB is ADC 00
+    :type adc_mask: int
 
-    Returns:
-      True if completes successfuly
+    :param dac_mask: 16 bits indicating what DACs to set. LSB is DAC 00
+    :type dac_mask: int
 
-    Raises:
-      KatcpRequestFail if KatcpTransport encounters an error
+    :return: `True` if completes successfuly, `False` otherwise
+    :rtype: bool
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
     """
     t = self.parent.transport
     for tile in range(0,4):
@@ -460,8 +478,10 @@ class RFDC(object):
 
     return True
 
+
   def get_adc_snapshot(self, ntile, nblk):
     """
     """
-
     raise NotImplemented()
+
+
