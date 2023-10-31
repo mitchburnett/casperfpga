@@ -297,22 +297,42 @@ class RFDC(object):
 
   def status(self):
     """
-    Reports ADC status for all tiles including if tile is enabled, state, and if enabled
-    PLL lock
+    Get RFDC ADC/DAC tile status. If tile is enabled, the tile state machine current state 
+    and internal PLL lock status are reported. See "Power-on Sequence" in PG269 for more information.
 
-    Returns:
-      True when completes
+    State values range from 0-15. A tile for the RFDC is considered operating nominally with valid
+    data present on the interface when in state 15. If in any other state the RFDC is waiting for
+    an electrical condition (sufficient power, clock presence, etc.). A summary of the mappings from
+    state value to current seuqencing is as follows:
 
-    Raises:
-      KatcpRequestFail if KatcpTransport encounters an error
+    0-2  : Device Power-up and Configuration
+    3-5  : Power Supply adjustment
+    6-10 : Clock configuration
+    11-13: Converter Calibration (ADC only)
+    14   : wait for deassertion of AXI4-Stream reset
+    15   : Done, the rfdc is ready and operating
+
+    :return: Dictionary for current enabled state of ADC/DACs
+    :rtype: dict[str, int]
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
     """
     t = self.parent.transport
 
     reply, informs = t.katcprequest(name='rfdc-status', request_timeout=t._timeout)
+    status = {}
     for i in informs:
-      print(i.arguments[0].decode())
+      # example inform (same format for DAC): 'ADC0: Enabled 1, State 15, PLL' or 'ADC0: Enabled 0'
+      info = i.arguments[0].decode().split(': ')
+      tile = info[0]
+      stat = info[1].split(', ')
+      d = {}
+      for s in stat:
+        k, v = s.split(' ')
+        d[k] = int(v)
+      status[tile] = d
 
-    return True
+    return status
 
 
   def get_ams_sensors(self):
@@ -333,6 +353,67 @@ class RFDC(object):
       sensors[s[0]] = float(s[1])
 
     return sensors
+
+
+  def get_ref_lock_status(self):
+    """
+    Returns LMK input reference clock (PLL1) lock detect status in a dictionary
+    as two values: `ref_lock_lost` and `ref_locked`.
+
+    `ref_locked` - current lock status. Value is 1 if the LMK is locked to the input reference, otherwise 0
+    `ref_lock_lost` - falling edge detect of `ref_locked` was detected and stored. This must
+    be manually cleared by the user using `clear_ref_lock_lost()`.
+
+    Example:
+      # In this example, the PLL is locked to the reference and there has been no lost detection
+      # events since the last clearing of `ref_lock_lost`
+      rfdc.get_ref_lock_status()
+      {'ref_lock_lost': 0, 'ref_locked': 1}
+
+      # Here, the PLL has lost lock with the reference clock and is still unlocked. The falling
+      # edge on `ref_locked` was detected and stored in `ref_lock_lost`.
+      rfdc.get_ref_lock_status()
+      {'ref_lock_lost': 1, 'ref_locked': 0}
+
+      # The PLL has regained lock with the reference. `ref_lock_lost` has not been cleared by
+      # the user and still reports that lock was lost sometime between now and the last time
+      # the `ref_lock_lost` was cleared.
+      rfdc.get_ref_lock_status()
+      {'ref_lock_lost': 1, 'ref_locked': 1}
+
+      # Make a call to clear and reset `ref_lock_lost` to renable detection any lost lock events
+      rfdc.clear_ref_lock_lost()
+      # another call to `get_ref_lock_status()` shows `ref_lock_lost` was cleared.
+      rfdc.get_ref_lock_status()
+      {'ref_lock_lost': 0, 'ref_locked': 1}
+
+    :return: A dictionary of LMK lock status value as int
+    :rtype: dict[str, int]
+
+    :raises KatcprequestFail: If KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+
+    reply, informs = t.katcprequest(name='rfsoc-lmk-ld-status', request_timeout=t._timeout)
+    lmk_status = {}
+    for i in informs:
+      s = i.arguments[0].decode().split(':')
+      lmk_status[s[0]] = int(s[1])
+
+    return lmk_status
+
+  def clear_ref_lock_lost(self):
+    """
+    Clear LMK falling edge lock detect status value `ref_lock_lost` returned by `get_reg_lock_status()`
+
+    :return: `True` when completes successfully, `False` otherwise
+    :rtype: bool
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+    reply, informs = t.katcprequest(name='rfsoc-clr-ld-lost', request_timeout=t._timeout)
+    return True
 
 
   def get_dsa(self):
