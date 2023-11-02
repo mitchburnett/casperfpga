@@ -54,7 +54,7 @@ setuptools.setup(
         'IPython',
         'future',
         'numpy',
-        'katcp==0.9.1',
+        'katcp==0.9.3',
         'katversion',
         'odict',
         'setuptools',
@@ -63,7 +63,8 @@ setuptools.setup(
         'tftpy',
         'progressbar2',
         'requests',
-        'circus'
+        'circus',
+        'crcmod'
     ],
     extras_require = {'test': ['pytest', 'pytest-datadir']},
     packages=['casperfpga', 'casperfpga.debug', 'casperfpga.progska'],
