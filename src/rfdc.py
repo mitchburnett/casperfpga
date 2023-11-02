@@ -297,22 +297,42 @@ class RFDC(object):
 
   def status(self):
     """
-    Reports ADC status for all tiles including if tile is enabled, state, and if enabled
-    PLL lock
+    Get RFDC ADC/DAC tile status. If tile is enabled, the tile state machine current state 
+    and internal PLL lock status are reported. See "Power-on Sequence" in PG269 for more information.
 
-    Returns:
-      True when completes
+    State values range from 0-15. A tile for the RFDC is considered operating nominally with valid
+    data present on the interface when in state 15. If in any other state the RFDC is waiting for
+    an electrical condition (sufficient power, clock presence, etc.). A summary of the mappings from
+    state value to current seuqencing is as follows:
 
-    Raises:
-      KatcpRequestFail if KatcpTransport encounters an error
+    0-2  : Device Power-up and Configuration
+    3-5  : Power Supply adjustment
+    6-10 : Clock configuration
+    11-13: Converter Calibration (ADC only)
+    14   : wait for deassertion of AXI4-Stream reset
+    15   : Done, the rfdc is ready and operating
+
+    :return: Dictionary for current enabled state of ADC/DACs
+    :rtype: dict[str, int]
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
     """
     t = self.parent.transport
 
     reply, informs = t.katcprequest(name='rfdc-status', request_timeout=t._timeout)
+    status = {}
     for i in informs:
-      print(i.arguments[0].decode())
+      # example inform (same format for DAC): 'ADC0: Enabled 1, State 15, PLL' or 'ADC0: Enabled 0'
+      info = i.arguments[0].decode().split(': ')
+      tile = info[0]
+      stat = info[1].split(', ')
+      d = {}
+      for s in stat:
+        k, v = s.split(' ')
+        d[k] = int(v)
+      status[tile] = d
 
-    return True
+    return status
 
 
   def get_dsa(self):
