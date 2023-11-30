@@ -220,7 +220,7 @@ class RFDC(object):
     :param port: Port to use for upload, default to `None` using a random port.
     :type port: int, optional
     :param force_upload: Force to upload the file at `fpath`.
-    :type force_uplaod: bool, optional
+    :type force_upload: bool, optional
 
     :return: `True` if `fpath` is uploaded successfuly or already exists on
         remote filesystem. `False` otherwise.
@@ -335,47 +335,60 @@ class RFDC(object):
     return status
 
 
-  def get_dsa(self):
+  def get_dsa(self, ntile, nblk):
     """
-    Reports digital step attenuator (DSA) values for all enabled ADCs and ADC blocks.
+    Get the step attenuator (DSA) value for an enaled ADC block. If a tile/block pair is disabled
+    an empty dictionary is returned and nothing is done.
 
-    :return: `True` when completes successfully, `False` otherwise
-    :rtype: bool
+    :param ntile: Tile index of target block to apply attenuation, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index of target adc to apply attenuation, must be in the range (0-3)
+    :type nblk: int
+
+    :return: Dictionary with dsa value, empty dictionary if tile/block is disabled
+    :rtype: dict[str, str]
 
     :raises KatcpRequestFail: If KatcpTransport encounters an error
     """
     t = self.parent.transport
 
-    reply, informs = t.katcprequest(name='rfdc-get-dsa', request_timeout=t._timeout)
-    for i in informs:
-      print(i.arguments[0].decode())
+    args = (ntile, nblk)
+    reply, informs = t.katcprequest(name='rfdc-get-dsa', request_timeout=t._timeout, request_args=args)
 
-    return True
+    dsa = {}
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return dsa
+
+    k = info[0]
+    v = info[1]
+    dsa = {k:v}
+    return dsa
 
 
   def set_dsa(self, ntile, nblk, atten_dB):
     """
-    Set the digital step attenuator (DSA) of tile "ntile" and adc block "nblk" to the
+    Set the digital step attenuator (DSA) of enabled tile "ntile" and adc block "nblk" to the
     value specified by `atten_dB`.
 
-    After write the attenuation value is read and displayed to show the actual value. If
-    a tile/blk pair result in a disabled a message is printed showing the pair as disabled
-    and nothing  is done. For now, TBS and the rfdc driver handles much of the error handling.
+    After write the attenuation value is read and. If a tile/blk pair is disabled an empty
+    dictionary is returned and nothing is done.
 
-    ES1 silicon can command attenuation levels from 0-11 dB with a step of 0.5 dB. Production silicon
-    can command to levels 0-27 dB with a step of 1.0 dB.
+    ES1 silicon can command attenuation levels from 0-11 dB with a step of 0.5 dB. Production
+    silicon can command to levels 0-27 dB with a step of 1.0 dB.
 
-    See Xilinx/AMD PG269 for more details on the DSA in the RFDC.
+    See Xilinx/AMD PG269 for more details on the DSA in the RFDC. This is only available on
+    Gen 3 devices.
 
     :param ntile: Tile index of target block to apply attenuation, in the range (0-3)
     :type ntile: int
-    :param nblk: Block index of target adc to apply attenuation, must be in the range (0-NUM_BLKS)
+    :param nblk: Block index of target adc to apply attenuation, must be in the range (0-3)
     :type nblk: int
     :param atten_dB: Requested attenuation level
     :type float:
 
-    :return: `True` if completes successfully, `False` otherwise
-    :rtype: bool
+    :return: Dictionary with dsa value, empty dictionary if tile/block is disabled
+    :rtype: dict[str, str]
 
     :raises KatcpRequestFail: If KatcpTransport encounters an error
     """
@@ -384,10 +397,86 @@ class RFDC(object):
     args = (ntile, nblk, atten_dB,)
     reply, informs = t.katcprequest(name='rfdc-set-dsa', request_timeout=t._timeout, request_args=args)
 
-    for i in informs:
-      print(i.arguments[0].decode())
+    dsa = {}
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return dsa
 
-    return True
+    k = info[0]
+    v = info[1]
+    dsa = {k:v}
+    return dsa
+
+
+  def get_output_current(self, ntile, nblk):
+    """
+    Get the output current in micro amps of enabled tile "ntile" and dac block "nblk". If a tile/block
+    pair is disabled an empty dictionary is returned and nothing is done.
+
+    :param ntile: Tile index of target block to get output current, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index of target dac get output current, must be in the range (0-3)
+    :type nblk: int
+
+    :return: Dictionary with current value in micro amp, empty dictionary if tile/block is disabled
+    :rtype: dict[str, str]
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk)
+    reply, informs = t.katcprequest(name='rfdc-get-output-current', request_timeout=t._timeout, request_args=args)
+
+    current = {}
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return {}
+
+    k = info[0]
+    v = info[1]
+    current = {k:v}
+    return current
+
+
+  def set_vop(self, ntile, nblk, curr_uA):
+    """
+    Set the output current in micro amps of enabled tile "ntile" and dac block "nblk". If a tile/block
+    pair is disabled an empty dictionary is returned and nothing is done.
+
+    ES1 silicon can command ranges from 6425 to 32000. Production silicon can accept values in the
+    range 2250 to 40500. Values are rounded to the nearest increment managed by the rfdc driver. Ranges,
+    errors, and bound checks are performed by the driver.
+
+    See Xilinx/AMD PG269 for more details on the VOP capabilities of the RFDC. This Only available on
+    Gen 3 device.
+
+    :param ntile: Tile index of target block to get output current, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index of target dac get output current, must be in the range (0-3)
+    :type nblk: int
+    :param curr_uA: the desired output current in micro amps
+    :type curr_uA: int
+
+    :return: Dictionary with current value in micro amp, empty dictionary if tile/block is disabled
+    :rtype: dict[str, str]
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, curr_uA,)
+    reply, informs = t.katcprequest(name='rfdc-set-vop', request_timeout=t._timeout, request_args=args)
+
+    vop = {}
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: #(disabled) response
+      return vop
+
+    k = info[0]
+    v = info[1]
+    vop = {k:v}
+    return vop
 
 
   def run_mts(self, tile_mask=15, target_latency=None):
