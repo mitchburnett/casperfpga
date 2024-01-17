@@ -4,7 +4,7 @@ import time
 import socket
 from time import strptime
 import string
-import collections
+from collections.abc import Callable
 
 from . import register
 from . import sbram
@@ -625,7 +625,7 @@ class CasperFpga(object):
             except KeyError:
                 pass
             else:
-                if not isinstance(known_device_class, collections.Callable):
+                if not isinstance(known_device_class, Callable):
                     raise TypeError('%s is not a callable Memory class - '
                                     'that\'s a problem.' % known_device_class)
 
@@ -692,7 +692,7 @@ class CasperFpga(object):
             except KeyError:
                 pass
             else:
-                if not isinstance(known_device_class, collections.Callable):
+                if not isinstance(known_device_class, Callable):
                     errmsg = '{} is not a callable ADC Class'.format(known_device_class)
                     raise TypeError(errmsg)
 

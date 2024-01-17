@@ -5,9 +5,7 @@ from collections.abc import Iterable
 logger = logging.getLogger(__name__)
 
 class DS28CM00:
-    """ 
-    DS28CM00 I2C/SMBus Silicon Serial Number 
-    """
+    """ DS28CM00 I2C/SMBus Silicon Serial Number """
 
     crcPoly = 0b100110001
     crcInitVal = 0
