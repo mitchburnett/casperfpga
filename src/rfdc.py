@@ -43,6 +43,25 @@ class RFDC(object):
   COMMON_STATUS_REG = 0x228
   TILE_DISABLE_REG = 0x230
 
+  # converter types
+  ADC_TILE = 0
+  DAC_TILE = 1
+
+  DTYPE_REAL = 0
+  DTYPE_CMPLX = 1
+
+  # background calibration blocks
+  CAL_MODE1 = 1
+  CAL_MODE2 = 2
+
+  CAL_BLOCK_OCB1 = 0
+  CAL_BLOCK_OCB2 = 1
+  CAL_BLOCK_GCB  = 2
+  CAL_BLOCK_TSCB = 3
+
+  CAL_UNFREEZE = 0
+  CAL_FREEZE = 1
+
   class tile(object):
     pass
 
@@ -335,6 +354,90 @@ class RFDC(object):
     return status
 
 
+  def get_fabric_clk_freq(self, ntile, converter_type):
+    """
+    Get the clock frequency at the PL/fifo interface between the adc or dac indicated by "converter_type" on tile "ntile".  "converter_type"
+    must be "adc" or "dac" and "ntile" must be in the range (0-3).
+
+    :param ntile: Tile index of target converter, in the range (0-3)
+    :type ntile: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+
+    :return: fabric clk frequency in MHz, "None" if target converter tile is disabled
+    :rtype: float
+    """
+
+    t = self.parent.transport
+
+    args = (ntile, "adc" if converter_type == self.RFDC_ADC_TILE  else "dac")
+    reply, informs = t.katcprequest(name='rfdc-get-fab-clk-freq', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode()
+    if info == "(disabled)":
+      return None
+    else:
+      return float(info)
+
+
+  def get_datatype(self, ntile, nblk, converter_type):
+    """
+    Get the output datetype of the adc or dac indicated by "converter_type" for the tile/block pair "ntile" and "nblk". "converter_type"
+    must be "adc" or "dac" and "ntile" and "nblk" must both be in the range (0-3). Returning 0 represents real-valued data and 1 represents
+    complex-valued data.
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+
+    :return: Integer value that is to map back to the converter output type, 0: real-valued, 1: complex-valued. Returns None if the target
+    converter is disabled
+    :rtype: int
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, "adc" if converter_type == self.RFDC_ADC_TILE  else "dac")
+    reply, informs = t.katcprequest(name='rfdc-get-datatype', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode()
+    if info == "(disabled)":
+      return None
+    else:
+      return int(info)
+
+
+  def get_datawidth(self, ntile, nblk, converter_type):
+    """
+    Get the datawidth, in samples, at the PL/fifo interface between the adc or dac indicated by "converter_type" for the tile/block pair
+    "ntile/nblk". "converter_type" must be "adc" or "dac" and "ntile" and "nblk" must both be in the range (0-3).
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+
+    :return: Number of 16-bit samples at the output of the converter. Returns None if the target converter is disabled. For real-value
+    output this is the same as the number of samples. For complex-valued outputs, this is the number I, or Q, samples at the output of the
+    interface. On dual-tile platforms, this is the total number of 16-bit I and Q samples combined together.
+    :rtype: int
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, "adc" if converter_type == self.RFDC_ADC_TILE  else "dac")
+    reply, informs = t.katcprequest(name='rfdc-get-datawidth', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode()
+    if info == "(disabled)":
+      return None
+    else:
+      return int(info)
+
+
   def get_dsa(self, ntile, nblk):
     """
     Get the step attenuator (DSA) value for an enaled ADC block. If a tile/block pair is disabled
@@ -408,14 +511,242 @@ class RFDC(object):
     return dsa
 
 
+  def get_cal_freeze(self, ntile, nblk):
+    """
+    Get the adc calibration freeze status for enabled tile "ntile" and block index "nblk". If a tile/block
+    pair is disabled an empty dictionary is returned and nothing is done.
+
+    :param ntile: Tile index of target adc tile to get calibration freeze status, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index of target adc block to get output current, must be in the range (0-3)
+    :type nblk: int
+
+    :return: Dictionary with freeze settings, empty dictionary if tile/block is disabled
+    :rtype: dict[str, int]
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk)
+    reply, informs = t.katcprequest(name='rfdc-get-cal-freeze', request_timeout=t._timeout, request_args=args)
+
+    freeze_settings = {}
+    info = informs[0].arguments[0].decode().split(', ')
+    if len(info) == 1: # (disabled) response
+      return freeze_settings
+
+    for stat in info:
+      k,v = stat.split(' ')
+      freeze_settings[k] = v
+
+    return freeze_settings
+
+
+  def set_cal_freeze(self, ntile, nblk, freeze):
+    """
+    Set adc calibration freeze status for enabled tile "ntile" and block index "nblk". If a tile/block
+    pair is disabled an empty dictionary is returned and nothing is done.
+
+    :param ntile: Tile index of target adc tile to get calibration freeze status, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index of target adc block to get output current, must be in the range (0-3)
+    :type nblk: int
+    :param freeze: 1 - indicates the calibration should be frozen. 0 - calibration should be unfrozen.
+
+    :return: Dictionary with freeze settings after applying new freeze value, empty dictionary if tile/block is disabled.
+    Freeze settings fields are:
+      - CalFrozen: indicates the current status of the background calibration functions. 1 - indicates the calibration
+        is frozen; 0 - indicates background calibration is operating normally.
+      - DisableFreezePin: this is not accessible by the casperfpga api at the moment
+      - FreezeCalibration: software register controling freeze calibration from the driver (this is what is set to freeze
+        the calibration). If this value is set calibration should also be frozen as indicated by "CalFrozen".
+    :rtype: dict[str, int]
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, freeze)
+    reply, informs = t.katcprequest(name='rfdc-set-cal-freeze', request_timeout=t._timeout, request_args=args)
+
+    freeze_settings = {}
+    info = informs[0].arguments[0].decode().split(', ')
+    if len(info) == 1: # (disabled) response
+      return freeze_settings
+
+    for stat in info:
+      k,v = stat.split(' ')
+      freeze_settings[k] = v
+
+    return freeze_settings
+
+
+  def get_cal_coeffs(self, ntile, nblk, calblk):
+    """
+    Get the adc calibration coefficients for enabled tile "ntile" and block index "nblk" for the background calibration blocks. If a
+    tile/block pair is disabled an empty dictionary is returned and nothing is done. Valid calblk values are 0 (for gen3 devices) 1-3 and
+    represent the OCB1, OCB2, GCB, and TSCB background calibration blocks, respectively. A user can also use rfdc.OCB1, rfdc.OCB2, rfdc.GCB, and
+    rfdc.TSCB to target calibration blocks, E.g., `get_cal_coeffs(0, 0, rfdc.OCB2)`.
+
+    Coeff{4-7} applies when chopping is active and is only relevant to the time skew calibration block (TSCB).
+
+    :param ntile: Tile index of target adc tile to get calibration freeze status, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index of target adc block to get output current, must be in the range (0-3)
+    :type nblk: int
+    :param calblk: Calibration block index, range 0 (for gen3 devices only) 1-3 representing the OCB1, OCB2, GCB, and TSCB respectively.
+    :type calblk: int
+
+    :return: Dictionary with calibration coefficients, empty dictionary if tile/block is disabled
+    :rtype: dict[str, int]
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, calblk)
+    reply, informs = t.katcprequest(name='rfdc-get-cal-coeffs', request_timeout=t._timeout, request_args=args)
+
+    cal_coeffs = {}
+    info = informs[0].arguments[0].decode().split(', ')
+    if len(info) == 1: # (disabled) response
+      return cal_coeffs
+
+    for stat in info:
+      k,v = stat.split(' ')
+      cal_coeffs[k] = v
+
+    return cal_coeffs
+
+
+  def set_cal_coeffs(self, ntile, nblk, calblk, coeffs):
+    """
+    Set adc calibration coefficients for enabled tile "ntile" and block index "nblk" for the background calibration blocks. If a tile/block
+    pair is disabled an empty dictionary is returned and nothing is done. Valid calblk values are 0 (for gen3 devices) 1-3 and represent the
+    OCB1, OCB2, GCB, and TSCB background calibration blocks, respectively. A user can also use rfdc.OCB1, rfdc.OCB2, rfdc.GCB, and rfdc.TSCB to
+    target calibration blocks, E.g., `get_cal_coeffs(0, 0, rfdc.OCB2)`.
+
+    :param ntile: Tile index of target adc tile to get calibration freeze status, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index of target adc block to get output current, must be in the range (0-3)
+    :type nblk: int
+    :param calblk: Calibration block index, range 0 (for gen3 devices only) 1-3 representing the OCB1, OCB2, GCB, and TSCB respectively.
+    :type calblk: int
+    :param coeffs: list of eight calibration coefficients
+    :type coeffs: list[int]
+
+    :return: Dictionary with calibration coefficients, empty dictionary if tile/block is disabled
+    :rtype: dict[str, int]
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, calblk, *coeffs)
+    reply, informs = t.katcprequest(name='rfdc-set-cal-coeffs', request_timeout=t._timeout, request_args=args)
+
+    cal_coeffs = {}
+
+    if len(informs) > 0: # (disabled) response, the only time this function informs is if the tile is disabled
+      return cal_coeffs
+
+    args = (ntile, nblk, calblk)
+    reply, informs = t.katcprequest(name='rfdc-get-cal-coeffs', request_timeout=t._timeout, request_args=args)
+
+    cal_coeffs = {}
+    info = informs[0].arguments[0].decode().split(', ')
+
+    for stat in info:
+      k,v = stat.split(' ')
+      cal_coeffs[k] = v
+
+    return cal_coeffs
+
+
+  def disable_user_coeffs(self, ntile, nblk, calblk):
+    """
+    Disables calibration coefficients for calibration block "calblk" set by the user from a call to "set_cal_coeffs()" for target adc 
+    indicated by "ntile" and "nblk". A call to "get_cal_coeffs()" is required to show coeffs have been cleared of user values.
+
+    :param ntile: Tile index of target adc, in the range (0-3).
+    :type ntile: int
+    :param nblk: Block index of target adc within a tile, in the range (0-3).
+    :type nblk: int
+    :param calblk: Calibration block index, range 0 (for gen3 devices only) 1-3 representing the OCB1, OCB2, GCB, and TSCB respectively.
+    :type calblk: int
+
+    :return: None
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, calblk)
+    reply, informs = t.katcprequest(name='rfdc-disable-user-coeffs', request_timeout=t._timeout, request_args=args)
+
+
+  def get_cal_mode(self, ntile, nblk):
+    """
+    Get the calibration mode for target converter selected by the tile/blk pair "ntile"/"nblk". It a tile pair is disabled None is returned.
+
+    :param ntile: Tile index of target adc, in the range (0-3).
+    :type ntile: int
+    :param nblk: Block index of target adc within a tile, in the range (0-3).
+    :type nblk: int
+
+    :return: Integer representing calibration Mode, 1: Mode 1, 2: Mode 2. None if target adc is disabled.
+    :rtype: int
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk)
+    reply, informs = t.katcprequest(name='rfdc-get-cal-mode', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return None
+
+    return int(info[1])
+
+  def set_cal_mode(self, ntile, nblk, calmode):
+    """
+    Set the calibration mode for target converter selected by the tile/blk pair "ntile"/"nblk". It a tile pair is disabled None is returned.
+
+    :param ntile: Tile index of target adc, in the range (0-3).
+    :type ntile: int
+    :param nblk: Block index of target adc within a tile, in the range (0-3).
+    :type nblk: int
+    :param calmode: Calibration mode to run on target converter, 1: Mode 1, 2: Mode 2.
+    :type calmode: int
+
+    :return: Integer representing calibration Mode, 1: Mode 1, 2: Mode 2. None if target adc is disabled.
+    :rtype: int
+
+    :raises KatcpRequestFail: If KatcpTransport encounters an error
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, calmode)
+    reply, informs = t.katcprequest(name='rfdc-set-cal-mode', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return None
+
+    return int(info[1])
+
+
   def get_output_current(self, ntile, nblk):
     """
     Get the output current in micro amps of enabled tile "ntile" and dac block "nblk". If a tile/block
     pair is disabled an empty dictionary is returned and nothing is done.
 
-    :param ntile: Tile index of target block to get output current, in the range (0-3)
+    :param ntile: Tile index of target dac tile to get output current, in the range (0-3)
     :type ntile: int
-    :param nblk: Block index of target dac get output current, must be in the range (0-3)
+    :param nblk: Block index of target dac block to get output current, must be in the range (0-3)
     :type nblk: int
 
     :return: Dictionary with current value in micro amp, empty dictionary if tile/block is disabled
