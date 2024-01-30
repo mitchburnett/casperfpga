@@ -47,8 +47,20 @@ class RFDC(object):
   ADC_TILE = 0
   DAC_TILE = 1
 
+  # nyquist zones
+  NYQUIST_ZONE1 = 1
+  NYQUIST_ZONE2 = 2
+
+  # converter data types
   DTYPE_REAL = 0
   DTYPE_CMPLX = 1
+
+  # PLL clock source
+  CLK_SRC_EXTERNAL = 0
+  CLK_SRC_INTERNAL = 1
+
+  PLL_UNLOCKED = 1
+  PLL_LOCKED = 2
 
   # background calibration blocks
   CAL_MODE1 = 1
@@ -61,6 +73,28 @@ class RFDC(object):
 
   CAL_UNFREEZE = 0
   CAL_FREEZE = 1
+
+  # trigger event
+  EVENT_MIXER =  1
+  EVENT_COARSE_DLY = 2
+  EVENT_QMC = 4
+
+  # QMC and Coarse Delay event update source
+  EVNT_SRC_IMMEDIAT = 0 # Update after register writeE
+  EVNT_SRC_SLICE = 1    # Update using SLICE
+  EVNT_SRC_TILE = 2     # Update using TILE
+  EVNT_SRC_SYSREF = 3   # Update using SYSREF
+  EVNT_SRC_MARKER = 4   # update using MARKER
+  EVNT_SRC_PL = 5       # update using PL event
+
+  # inverse sinc fir modes
+  INVSINC_FIR_DISABLED = 0 # disabled
+  INVSINC_FIR_NYQUIST1 = 1 # first nyquist
+  INVSINC_FIR_NYQUIST2 = 2 # second nyquist
+
+  # image rection filter
+  IMR_LOWPASS = 0
+  IMR_HIGHPASS = 1
 
   class tile(object):
     pass
@@ -370,7 +404,7 @@ class RFDC(object):
 
     t = self.parent.transport
 
-    args = (ntile, "adc" if converter_type == self.RFDC_ADC_TILE  else "dac")
+    args = (ntile, "adc" if converter_type == self.ADC_TILE  else "dac")
     reply, informs = t.katcprequest(name='rfdc-get-fab-clk-freq', request_timeout=t._timeout, request_args=args)
 
     info = informs[0].arguments[0].decode()
@@ -399,7 +433,7 @@ class RFDC(object):
     """
     t = self.parent.transport
 
-    args = (ntile, nblk, "adc" if converter_type == self.RFDC_ADC_TILE  else "dac")
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac")
     reply, informs = t.katcprequest(name='rfdc-get-datatype', request_timeout=t._timeout, request_args=args)
 
     info = informs[0].arguments[0].decode()
@@ -428,7 +462,7 @@ class RFDC(object):
     """
     t = self.parent.transport
 
-    args = (ntile, nblk, "adc" if converter_type == self.RFDC_ADC_TILE  else "dac")
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac")
     reply, informs = t.katcprequest(name='rfdc-get-datawidth', request_timeout=t._timeout, request_args=args)
 
     info = informs[0].arguments[0].decode()
@@ -436,6 +470,377 @@ class RFDC(object):
       return None
     else:
       return int(info)
+
+
+  def get_nyquist_zone(self, ntile, nblk, converter_type):
+    """
+    Get the nyquist zone setting for a specified adc/dac
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+
+    :return: Currently configured Nyquist zone (1 or 2) for target converter. Returns None if converter is disabled.
+    :rtype: int
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac")
+    reply, informs = t.katcprequest(name='rfdc-get-nyquist-zone', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return None
+    else:
+      nyquist_zone = info[1]
+      return int(nyquist_zone)
+
+
+  def set_nyquist_zone(self, ntile, nblk, converter_type, nyquist_zone):
+    """
+    Set the nyquist zone for a specified adc/dac
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+    :param nyquist_zone: target nyquist zone value (1 or 2)
+
+    :return: Configured Nyquist zone for target converter. Returns None if converter is disabled.
+    :rtype: int
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac", nyquist_zone)
+    reply, informs = t.katcprequest(name='rfdc-set-nyquist-zone', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return None
+    else:
+      nyquist_zone = info[1]
+      return int(nyquist_zone)
+
+
+  def get_coarse_delay(self, ntile, nblk, converter_type):
+    """
+    Coarse delay allows adjusting the delay in the digital datapath, which can be useful to compensate for delay mismatch in a system
+    implementation. The compensation here is limited to periods of the sampling clock. The following shows the number of periods of
+    the sampling clock (T1 = sample clock period, or T2=2*T1, i.e., twice the sample period).
+
+    Delay tuning capability in Gen 1/Gen 2 devices:
+
+    Tile Type  | Digital Control | Coarse Delay Step
+    ------------------------------------------------
+    Dual Tile       0 to 7              T2
+    Quad Tile       0 to 7              T1
+    RF-DAC          0 to 7              T1
+
+    Delay tuning capability in Gen 3 devices:
+
+    All tile types have digital delay control 0-40 in coarse T1 delay steps.
+
+    Note: for PCB design and flight time information to correct delay adjustment see the UltraScale Architecture PCB Design User Guide (UG583).
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+
+    :return: Digital datapath coarse delay value in units of sample clock period as shown in above table. Returns None if the target
+             converter is disabled.
+    :rtype: int
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac")
+    reply, informs = t.katcprequest(name='rfdc-get-coarse-delay', request_timeout=t._timeout, request_args=args)
+
+    coarse_delay = {}
+    info = informs[0].arguments[0].decode().split(', ')
+    if len(info) == 1: # (disabled) response
+      return coarse_delay
+
+    for stat in info:
+      k,v = stat.split(' ')
+      coarse_delay[k] = int(v)
+
+    return coarse_delay
+
+
+  def set_coarse_delay(self, ntile, nblk, converter_type, coarse_delay, event_source):
+    """
+    Coarse delay allows adjusting the delay in the digital datapath, which can be useful to compensate for delay mismatch in a system
+    implementation. The compensation here is limited to periods of the sampling clock. The following shows the number of periods of
+    the sampling clock (T1 = sample clock period, or T2=2*T1, i.e., twice the sample period).
+
+    Delay tuning capability in Gen 1/Gen 2 devices:
+
+    Tile Type  | Digital Control | Coarse Delay Step
+    ------------------------------------------------
+    Dual Tile       0 to 7              T2
+    Quad Tile       0 to 7              T1
+    RF-DAC          0 to 7              T1
+
+    Delay tuning capability in Gen 3 devices:
+
+    All tile types have digital delay control 0-40 in coarse T1 delay steps.
+
+    Note: for PCB design and flight time information to correct delay adjustment see the UltraScale Architecture PCB Design User Guide (UG583).
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+    :param coarse_delay: Coarse delay in the number of samples. Range: (0-7) for Gen 1/Gen 2 devices and (0-40) for Gen 3 devices.
+    :type coarse_delay: int
+    :param event_souce: Event source for update of coarse delay settings
+    :type event_source: int
+
+    :return: Digital datapath coarse delay value in units of sample clock period as shown in above table. Returns None if the target
+             converter is disabled.
+    :rtype: int
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac", coarse_delay, event_source)
+    reply, informs = t.katcprequest(name='rfdc-get-coarse-delay', request_timeout=t._timeout, request_args=args)
+
+    coarse_delay = {}
+    info = informs[0].arguments[0].decode().split(', ')
+    if len(info) == 1: # (disabled) response
+      return coarse_delay
+
+    for stat in info:
+      k,v = stat.split(' ')
+      coarse_delay[k] = v
+
+    return coarse_delay
+
+
+  def get_qmc_settings(self, ntile, nblk, converter_type):
+    """
+    Get quadrature modulator correction (QMC) settings for target converter.
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+
+    :return: dictionary of QMC settings. Returns None if the target converter is disabled.
+    :rtype: dict[str, float]
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac")
+    reply, informs = t.katcprequest(name='rfdc-get-qmc-settings', request_timeout=t._timeout, request_args=args)
+
+    qmc_settings = {}
+    info = informs[0].arguments[0].decode().split(', ')
+    if len(info) == 1: # (disabled) response
+      return qmc_settings
+
+    for stat in info:
+      k,v = stat.split(' ')
+      qmc_settings[k] = float(v)
+
+    return qmc_settings
+
+
+  def set_qmc_settings(self, ntile, nblk, converter_type, enable_phase, phase_correction_factor,
+                        enable_gain, gain_correction_factor,
+                        offset_correction_factor, event_source):
+    """
+    Set quadrature modulator correction (QMC) settings for target converter. The QMC is used to correct imbalance in I/Q datapaths
+    after front end analog conversion. Error and/or imbalance detection is an application specific process.
+
+    # set QMC settings to adjust gain and phase for adc 0 in tile 0 to update with a tile event
+    rfdc.set_qmc_settings(0,0, rfdc.ADC_TILE, 1, -5.0, 1, 0.9, 0, rfdc.EVNT_SRC_TILE)
+    # set QMC settings for adc 1 to just adjust gain in tile 0 to update with a tile event
+    rfdc.set_qmc_settings(0,1, rfdc.ADC_TILE, 0, 0, 1, 0.95, 0, rfdc.EVNT_SRC_TILE)
+    # generate a tile update event to apply QMC settings, both are in the same tile needing to specify the event once using either 0 or 1
+    rfdc.update_event(0, 0, rfdc.ADC_TILE, rfdc.EVENT_QMC)
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+    :param enable_phase: Indicates if phase is enabled (1) or disabled (0).
+    :type enable_phase: int
+    :param phase_correction_factor: Phase correction factor. Range: +/- 26.5 degrees (Exclusive).
+    :type phase_correction_factor: float
+    :param enable_gain: Indicates if gain is enabled(1) or disabled (0).
+    :type enable_gain: int
+    :param gain_correction_factor: Gain correction factor. Range: 0 to 2.0 (Exclusive).
+    :type gain_correction_factor: float
+    :param offset_correction_factor: Offset correction factor is adding a fixed LSB value to the sampled signal.
+    :type offset_correction_factor: int
+    :param event_source: Event source for QMC settings.
+    :type event_source: int
+
+    :return: dictionary of applied QMC settings. Returns None if the target converter is disabled.
+    :rtype: dict[str, float]
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac", enable_phase, enable_gain,
+            gain_correction_factor, phase_correction_factor, offset_correction_factor, event_source)
+    reply, informs = t.katcprequest(name='rfdc-set-qmc-settings', request_timeout=t._timeout, request_args=args)
+
+    qmc_settings = {}
+    info = informs[0].arguments[0].decode().split(', ')
+    if len(info) == 1: # (disabled) response
+      return qmc_settings
+
+    for stat in info:
+      k,v = stat.split(' ')
+      qmc_settings[k] = float(v)
+
+    return qmc_settings
+
+
+  def update_event(self, ntile, nblk, converter_type, event):
+    """
+    Use this function to trigger the update event for an event if the event source is Slice or Tile.
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+    :param event: trigger update event for mixer, coarse delay, or qmc.
+    :type event: int
+
+    :return: None
+    :rtype: None
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac", event)
+    reply, informs = t.katcprequest(name='rfdc-update-event', request_timeout=t._timeout, request_args=args)
+
+
+  def get_pll_config(self, ntile, converter_type):
+    """
+    Reads the PLL settings for a converter tile.
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+
+    :return: Dictionary with converter tile PLL settings, empty dictionary if tile/block is disabled
+    :rtype: dict[str, float]
+    """
+    t = self.parent.transport
+
+    args = (ntile, "adc" if converter_type == self.ADC_TILE  else "dac")
+    reply, informs = t.katcprequest(name='rfdc-get-pll-config', request_timeout=t._timeout, request_args=args)
+
+    pll_config = {}
+    info = informs[0].arguments[0].decode().split(', ')
+    if len(info) == 1: # (disabled) response
+      return pll_config
+
+    for stat in info:
+      k,v = stat.split(' ')
+      pll_config[k] = float(v)
+
+    return pll_config
+
+
+  def set_pll_config(self, ntile, converter_type, clk_src, pll_ref_freq, sample_rate):
+    """
+    Dyanmically configure PLL settings for a converter tile.
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3).
+    :type ntile: int
+    :param converter_type: Represents the target converter type, "adc" or "dac".
+    :type converter_type: str
+    :param clk_src: Internal PLL or external clock source.
+    :type clk_src: int
+    :param pll_ref_freq: Reference clock frequency in MHz (FREF min to FREF max).
+    :type pll_ref_freq: float
+    :param sample_rate: Sampling rate frequency in MHz (Fs min to Fs max).
+    :type sample_rate: float
+
+    :return: Dictionary with converter tile PLL settings, empty dictionary if tile/block is disabled.
+    :rtype: dict[str, float]
+    """
+    t = self.parent.transport
+
+    args = (ntile, "adc" if converter_type == self.ADC_TILE  else "dac", clk_src, pll_ref_freq, sample_rate)
+    reply, informs = t.katcprequest(name='rfdc-set-pll-config', request_timeout=t._timeout, request_args=args)
+
+    pll_config = {}
+    if len(informs) > 0: # (disabled) response, the only time this function informs is if the tile is disabled
+      return pll_config
+
+    return self.get_pll_config(ntile, converter_type)
+
+
+  def get_pll_lock_status(self, ntile, converter_type):
+    """
+    Gets the PLL lock status for target converter tile.
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3).
+    :type ntile: int
+    :param converter_type: Represents the target converter type, "adc" or "dac".
+    :type converter_type: str
+
+    :return: PLL lock status, empty if tile/block is disabled or internal PLL not used.
+    :rtype: int
+    """
+    t = self.parent.transport
+
+    args = (ntile, "adc" if converter_type == self.ADC_TILE  else "dac")
+    reply, informs = t.katcprequest(name='rfdc-pll-lock-status', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode().split(' ')
+    pll_lock_status = info[1]
+    if info == "(disabled)":
+      return None
+    else:
+      return int(pll_lock_status)
+
+
+  def get_clk_src(self, ntile, converter_type):
+    """
+    Gets the source for target converter tile sample clock (external or internal PLL).
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3).
+    :type ntile: int
+    :param converter_type: Represents the target converter type, "adc" or "dac".
+    :type converter_type: str
+
+    :return: Source for sample clock, 0: external, 1: internal PLL, empty if tile is disabled.
+    :rtype: int
+    """
+    t = self.parent.transport
+
+    args = (ntile, "adc" if converter_type == self.ADC_TILE  else "dac")
+    reply, informs = t.katcprequest(name='rfdc-get-clk-src', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode().split(' ')
+    clk_src = info[1]
+    if info == "(disabled)":
+      return None
+    else:
+      return int(clk_src)
 
 
   def get_dsa(self, ntile, nblk):
@@ -808,6 +1213,134 @@ class RFDC(object):
     v = info[1]
     vop = {k:v}
     return vop
+
+
+  def get_invsinc_fir(self, ntile, nblk):
+    """
+    Get the inverse sinc filter mode.
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+
+    :return: 0 if disabled, 1 if first nyquist, and 2 for second nyquist (gen 3 devices only). Returns None if converter is disabled.
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk)
+    reply, informs = t.katcprequest(name='rfdc-get-invsincfir', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return None
+    else:
+      invsincfir_mode = info[1]
+      return int(invsincfir_mode)
+
+
+  def set_invsinc_fir(self, ntile, nblk, invsinc_fir_mode):
+    """
+    Set the inverse sinc filter mode; 0 - disabled, 1 - first nyquist, and for gen 3 devices 2 - second nyquist.
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param invsinc_fir_mode: inverse sinc filter mode; 0 - disabled, 1 - first nyquist, and for gen 3 devices 2 - second nyquist.
+
+    :type invsinc_fir_mode: int
+
+    :return: 0 if disabled, 1 if first nyquist, and 2 for second nyquist (gen 3 devices only). Returns None if converter is disabled.
+    :rtype: int
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, invsinc_fir_mode)
+    reply, informs = t.katcprequest(name='rfdc-set-invsincfir', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return None
+    else:
+      invsincfir_mode = info[1]
+      return int(invsincfir_mode)
+
+
+  def invsinc_fir_enabled(self, ntile, nblk):
+    """
+    If the inverse sinc filter is enabled for target DAC converter, the function returns 1; otherwise, it returns 0.
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+
+    :return: 1 if filter is enabled; otherwise, returns 0. Returns None if converter is disabled.
+    :rtype: int
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk)
+    reply, informs = t.katcprequest(name='rfdc-invsincfir-enabled', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return None
+    else:
+      invsincfir_enabled = info[1]
+      return int(invsincfir_enabled)
+
+
+  def get_imr_mode(self, ntile, nblk):
+    """
+    Get the image rejection filter mode.
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+
+    :return: 0 if in lowpass mode, 1 if highpass mode. Returns None if converter is disabled.
+    :rtype: int
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk)
+    reply, informs = t.katcprequest(name='rfdc-get-imr-mode', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return None
+    else:
+      imr_mode = info[1]
+      return int(imr_mode)
+
+
+  def set_imr_mode(self, ntile, nblk, imr_mode):
+    """
+    Set the image rejection filter mode; 0 - lowpass, 1 - highpass.
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param imr_mode: IMR filter mode set to 0 for lowpass or 1 for high pass.
+
+    :return: 0 if in lowpass mode, 1 if highpass mode. Returns None if converter is disabled.
+    :rtype: int
+    """
+    t = self.parent.transport
+
+    args = (ntile, nblk, imr_mode)
+    reply, informs = t.katcprequest(name='rfdc-set-imr-mode', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return None
+    else:
+      imr_mode = info[1]
+      return int(imr_mode)
 
 
   def run_mts(self, tile_mask=15, target_latency=None):
