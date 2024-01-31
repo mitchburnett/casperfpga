@@ -400,8 +400,16 @@ class RFDC(object):
 
     :return: fabric clk frequency in MHz, "None" if target converter tile is disabled
     :rtype: float
-    """
 
+    Examples
+    ---------
+    # get fabric clock for ADC Tile 0
+    >>>> rfdc.get_fabric_clk_freq(0, rfdc.ADC_TILE)
+    245.76
+    # get fabric clock for DAC Tile 1
+    >>>> rfdc.get_fabric_clk_freq(1, rfdc.DAC_TILE)
+    245.76
+    """
     t = self.parent.transport
 
     args = (ntile, "adc" if converter_type == self.ADC_TILE  else "dac")
@@ -430,6 +438,20 @@ class RFDC(object):
     :return: Integer value that is to map back to the converter output type, 0: real-valued, 1: complex-valued. Returns None if the target
     converter is disabled
     :rtype: int
+
+    Examples
+    ----------
+    # get data type for ADC 00
+    >>>> rfdc.get_datatype(0,0,rfdc.ADC_TILE)
+    0 # Real-valued (rfdc.DTYPE_REAL)
+
+    # get data type for ADC 10
+    >>>> rfdc.get_datatype(1,0,rfdc.ADC_TILE)
+    1 # Complex-valued
+
+    # get data type for DAC 00
+    >>>> rfdc.get_datatype(0,0,rfdc.DAC_TILE)
+    0 # Real-valued
     """
     t = self.parent.transport
 
@@ -459,6 +481,16 @@ class RFDC(object):
     output this is the same as the number of samples. For complex-valued outputs, this is the number I, or Q, samples at the output of the
     interface. On dual-tile platforms, this is the total number of 16-bit I and Q samples combined together.
     :rtype: int
+
+    Examples
+    ----------
+    # get number of samples out of axis interface for ADC 00
+    rfdc.get_datawidth(0,0,rfdc.ADC_TILE)
+    4 # four samples per clock
+
+    # get number of input to the axis interface for DAC 00
+    rfdc.get_datawidth(0,0,rfdc.DAC_TILE)
+    8 # eight samples per clock
     """
     t = self.parent.transport
 
@@ -485,6 +517,16 @@ class RFDC(object):
 
     :return: Currently configured Nyquist zone (1 or 2) for target converter. Returns None if converter is disabled.
     :rtype: int
+
+    Examples
+    ---------
+    # get nyquist zone for ADC 00
+    >>>> rfdc.get_nyquist_zone(0,0,rfdc.ADC_TILE)
+    2 # Nyquist zone 2
+
+    # get nyquist zone for DAC 10
+    >>>> rfdc.get_nyquist_zone(1,0,rfdc.DAC_TILE)
+    1 # Nyquist zone 1
     """
     t = self.parent.transport
 
@@ -513,6 +555,16 @@ class RFDC(object):
 
     :return: Configured Nyquist zone for target converter. Returns None if converter is disabled.
     :rtype: int
+
+    Examples
+    ---------
+    # set nyquist zone for ADC 00
+    >>>> rfdc.set_nyquist_zone(0, 0, rfdc.ADC_TILE, rfdc.NYQUIST_ZONE2)
+    2 # Nyquist zone 2
+
+    # set nyquist zone for DAC 10
+    >>>> rfdc.set_nyquist_zone(1, 0, rfdc.DAC_TILE, rfdc.NYQUIST_ZONE1)
+    1 # Nyquist zone 1
     """
     t = self.parent.transport
 
@@ -557,6 +609,12 @@ class RFDC(object):
     :return: Digital datapath coarse delay value in units of sample clock period as shown in above table. Returns None if the target
              converter is disabled.
     :rtype: int
+
+    Examples
+    ---------
+    # get coarse delay for ADC 00
+    >>>> rfdc.get_coarse_delay(0,0, rfdc.ADC_TILE)
+    {'CoarseDelay': 8, 'EventSource': 2}
     """
     t = self.parent.transport
 
@@ -609,11 +667,19 @@ class RFDC(object):
     :return: Digital datapath coarse delay value in units of sample clock period as shown in above table. Returns None if the target
              converter is disabled.
     :rtype: int
+
+    Examples
+    ---------
+    # set coarse delay to 12*T1 for ADC 00 on a gen 3 device and setup to apply on a tile event
+    >>>> rfdc.set_coarse_delay(0, 0, rfdc.ADC_TILE, 12, rfdc.EVNT_SRC_TILE)
+    {'CoarseDelay': 12, 'EventSource': 2}
+    # trigger update event to apply
+    rfdc.update_event(0, 0, rfdc.EVENT_COARSE_DELAY)
     """
     t = self.parent.transport
 
     args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac", coarse_delay, event_source)
-    reply, informs = t.katcprequest(name='rfdc-get-coarse-delay', request_timeout=t._timeout, request_args=args)
+    reply, informs = t.katcprequest(name='rfdc-set-coarse-delay', request_timeout=t._timeout, request_args=args)
 
     coarse_delay = {}
     info = informs[0].arguments[0].decode().split(', ')
@@ -640,6 +706,16 @@ class RFDC(object):
 
     :return: dictionary of QMC settings. Returns None if the target converter is disabled.
     :rtype: dict[str, float]
+
+    Examples
+    ---------
+    >>>> rfdc.get_qmc_settings(0,1, rfdc.ADC_TILE)
+    {'EnablePhase': 0.0,
+     'EnableGain': 1.0,
+     'GainCorrectionFactor': 0.949951,
+     'PhaseCorrectionFactor': 0.0,
+     'OffsetCorrectionFactor': 0.0,
+     'EventSource': 2.0}
     """
     t = self.parent.transport
 
@@ -665,13 +741,6 @@ class RFDC(object):
     Set quadrature modulator correction (QMC) settings for target converter. The QMC is used to correct imbalance in I/Q datapaths
     after front end analog conversion. Error and/or imbalance detection is an application specific process.
 
-    # set QMC settings to adjust gain and phase for adc 0 in tile 0 to update with a tile event
-    rfdc.set_qmc_settings(0,0, rfdc.ADC_TILE, 1, -5.0, 1, 0.9, 0, rfdc.EVNT_SRC_TILE)
-    # set QMC settings for adc 1 to just adjust gain in tile 0 to update with a tile event
-    rfdc.set_qmc_settings(0,1, rfdc.ADC_TILE, 0, 0, 1, 0.95, 0, rfdc.EVNT_SRC_TILE)
-    # generate a tile update event to apply QMC settings, both are in the same tile needing to specify the event once using either 0 or 1
-    rfdc.update_event(0, 0, rfdc.ADC_TILE, rfdc.EVENT_QMC)
-
     :param ntile: Tile index of where target converter block is, in the range (0-3)
     :type ntile: int
     :param nblk: Block index within target converter tile, in the range (0-3)
@@ -693,6 +762,29 @@ class RFDC(object):
 
     :return: dictionary of applied QMC settings. Returns None if the target converter is disabled.
     :rtype: dict[str, float]
+
+    Examples
+    ----------
+    # set QMC settings to adjust gain and phase for adc 0 in tile 0 to update with a tile event
+    >>>> rfdc.set_qmc_settings(0,0, rfdc.ADC_TILE, 1, -5.0, 1, 0.9, 0, rfdc.EVNT_SRC_TILE)
+    {'EnablePhase': 1.0,
+     'EnableGain': 1.0,
+     'GainCorrectionFactor': 0.899902,
+     'PhaseCorrectionFactor': -5.0,
+     'OffsetCorrectionFactor': 0.0,
+     'EventSource': 2.0}
+
+    # set QMC settings for adc 1 to just adjust gain in tile 0 to update with a tile event
+    >>>> rfdc.set_qmc_settings(0,1, rfdc.ADC_TILE, 0, 0, 1, 0.95, 0, rfdc.EVNT_SRC_TILE)
+    {'EnablePhase': 0.0,
+     'EnableGain': 1.0,
+     'GainCorrectionFactor': 0.949951,
+     'PhaseCorrectionFactor': 0.0,
+     'OffsetCorrectionFactor': 0.0,
+     'EventSource': 2.0}
+
+    # generate a tile update event to apply QMC settings, both are in the same tile needing to specify the event once using either 0 or 1
+    >>>> rfdc.update_event(0, 0, rfdc.ADC_TILE, rfdc.EVENT_QMC)
     """
     t = self.parent.transport
 
@@ -727,6 +819,14 @@ class RFDC(object):
 
     :return: None
     :rtype: None
+
+    Examples
+    ---------
+    # make an adjustment to the coarse delay, mixer, or qmc then trigger update event to apply
+    >>>> rfdc.set_coarse_delay(0, 0, rfdc.ADC_TILE, 12, rfdc.EVNT_SRC_TILE)
+    {'CoarseDelay': 12, 'EventSource': 2}
+    # trigger update event to apply
+    rfdc.update_event(0, 0, rfdc.EVENT_COARSE_DELAY)
     """
     t = self.parent.transport
 
@@ -745,6 +845,17 @@ class RFDC(object):
 
     :return: Dictionary with converter tile PLL settings, empty dictionary if tile/block is disabled
     :rtype: dict[str, float]
+
+    Examples
+    ----------
+    # get PLL configuration for tile ADC Tile 0
+    >>>> rfdc.get_pll_config(0,rfdc.ADC_TILE)
+   {'Enabled': 1.0,
+    'RefClkFreq': 491.52,
+    'SampleRate': 3.93216,
+    'RefClkDivider': 24.0,
+    'FeedbackDivider': 3.0,
+    'OutputDivider': 0.0}
     """
     t = self.parent.transport
 
@@ -780,6 +891,17 @@ class RFDC(object):
 
     :return: Dictionary with converter tile PLL settings, empty dictionary if tile/block is disabled.
     :rtype: dict[str, float]
+
+    Examples
+    ---------
+    # set pll reference frequency to 245.76 MHz on ADC Tile 0
+    >>>> rfdc.set_pll_config(0, rfdc.ADC_TILE, rfdc.CLK_SRC_INTERNAL, 245.76, 3932.16)
+    {'Enabled': 1.0,
+     'RefClkFreq': 245.76,
+     'SampleRate': 3.93216,
+     'RefClkDivider': 48.0,
+     'FeedbackDivider': 3.0,
+     'OutputDivider': 0.0}
     """
     t = self.parent.transport
 
@@ -804,6 +926,16 @@ class RFDC(object):
 
     :return: PLL lock status, empty if tile/block is disabled or internal PLL not used.
     :rtype: int
+
+    Examples
+    ----------
+    # get PLL lock status for ADC Tile 0
+    >>>> rfdc.get_pll_lock_status(0,rfdc.ADC_TILE)
+    1 # Unlocked
+
+    # get PLL lock status for ADC Tile 2
+    >>>> rfdc.get_pll_lock_status(2,rfdc.ADC_TILE)
+    2 # Locked
     """
     t = self.parent.transport
 
@@ -829,6 +961,16 @@ class RFDC(object):
 
     :return: Source for sample clock, 0: external, 1: internal PLL, empty if tile is disabled.
     :rtype: int
+
+    Examples
+    ----------
+    # get sample clock source for ADC Tile 0
+    >>>> rfdc.get_clk_src(0, rfdc.ADC_TILE)
+    1 # internal RF PLL
+
+    # get sample clock source for ADC Tile 1
+    >>>> rfdc.get_clk_src(1, rfdc.ADC_TILE 1
+    0 # external clock
     """
     t = self.parent.transport
 
@@ -857,6 +999,16 @@ class RFDC(object):
     :rtype: dict[str, str]
 
     :raises KatcpRequestFail: If KatcpTransport encounters an error
+
+    Examples
+    ---------
+    # get DSA for ADC 00
+    >>>> rfdc.get_dsa(0, 0)
+    {'dsa': '10'}
+
+    # get DSA for ADC 10
+    >>>> rfdc.get_dsa(1, 0)
+    {'dsa': '0'}
     """
     t = self.parent.transport
 
@@ -899,6 +1051,12 @@ class RFDC(object):
     :rtype: dict[str, str]
 
     :raises KatcpRequestFail: If KatcpTransport encounters an error
+
+    Examples
+    ----------
+    # set_dsa for ADC 10
+    >>>> rfdc.set_dsa(1, 0, 20)
+    {'dsa': '20'}
     """
     t = self.parent.transport
 
@@ -930,6 +1088,13 @@ class RFDC(object):
     :rtype: dict[str, int]
 
     :raises KatcpRequestFail: If KatcpTransport encounters an error
+
+    Examples
+    ----------
+    # get the calibration freeze status for ADC 00
+    >>>> ntile=0, nblk=0
+    >>>> rfdc.get_cal_freeze(ntile, nblk)
+    {'CalFreeze': 0, 'DisableCalPin': 0, 'CalibrationFreeze': 0}
     """
     t = self.parent.transport
 
@@ -969,6 +1134,17 @@ class RFDC(object):
     :rtype: dict[str, int]
 
     :raises KatcpRequestFail: If KatcpTransport encounters an error
+
+    Examples
+    ---------
+    # freeze the calibration for ADC 01
+    >>>> ntile=0, nblk=1
+    >>>> rfdc.set_cal_freeze(ntile, nblk, rfdc.CAL_FREEZE)
+    {'CalFreeze': 1, 'DisableCalPin': 0, 'CalibrationFreeze': 1}
+
+    # unfreeze the calibration for ADC 01
+    rfdc.set_cal_freeze(ntile, nblk, rfdc.CAL_UNFREEZE)
+    {'CalFreeze': 0, 'DisableCalPin': 0, 'CalibrationFreeze': 0}
     """
     t = self.parent.transport
 
@@ -1007,6 +1183,44 @@ class RFDC(object):
     :rtype: dict[str, int]
 
     :raises KatcpRequestFail: If KatcpTransport encounters an error
+
+    Examples
+    ---------
+    # target ADC will be ADC 00
+    >>>> ntile=0, nblk=0
+
+    # get calibration coefficients for background calibration blocks OCB1/2
+    >>>> rfdc.get_cal_coeffs(ntile, nblk, rfdc.CAL_BLOCK_OCB1) # or CAL_BLOCK_OCB2
+    {'Coeff0': '4293263342',
+     'Coeff1': '4293001175',
+     'Coeff2': '4294770722',
+     'Coeff3': '393233',
+     'Coeff4': '0',
+     'Coeff5': '0',
+     'Coeff6': '0',
+     'Coeff7': '0'}
+
+    # get calibration coefficients for background gain calibration block (GCB)
+    >>>> rfdc.get_cal_coeffs(ntile, nblk rfdc.CAL_BLOCK_OCB1)
+    {'Coeff0': '2162688',
+     'Coeff1': '659380',
+     'Coeff2': '261688808',
+     'Coeff3': '1114162',
+     'Coeff4': '0',
+     'Coeff5': '0',
+     'Coeff6': '0',
+     'Coeff7': '0'}
+
+    # get calibration coefficients for background time skew block (TSCB)
+    >>>> rfdc.get_cal_coeffs(ntile, nblk, rfdc.CAL_BLOCK_TSCB)
+    {'Coeff0': '33489407',
+     'Coeff1': '33489407',
+     'Coeff2': '33489407',
+     'Coeff3': '33489407',
+     'Coeff4': '33489407',
+     'Coeff5': '33489407',
+     'Coeff6': '33489407',
+     'Coeff7': '197119'}
     """
     t = self.parent.transport
 
@@ -1045,6 +1259,24 @@ class RFDC(object):
     :rtype: dict[str, int]
 
     :raises KatcpRequestFail: If KatcpTransport encounters an error
+
+    Examples
+    _________
+    # target adc will be ADC 00
+    >>>> ntile=0, nblk=0
+    # set calibration coeffs for any of the calibration blocks. Values here are
+    # similar to the example shown in RFDC product guide PG269. After setting the
+    # coefficient values the driver readsback and returns the applied coefficients
+    >>>> coeffs = [136, 255, 255, 137, 255, 225, 255, 136]
+    >>>> rfdc.set_cal_coeffs(ntile, nblk, rfdc.CAL_BLOCK_TSCB, coeffs)
+    {'Coeff0': '136',
+     'Coeff1': '255',
+     'Coeff2': '255',
+     'Coeff3': '137',
+     'Coeff4': '255',
+     'Coeff5': '225',
+     'Coeff6': '255',
+     'Coeff7': '136'}
     """
     t = self.parent.transport
 
@@ -1084,6 +1316,35 @@ class RFDC(object):
     :return: None
 
     :raises KatcpRequestFail: If KatcpTransport encounters an error
+
+    Examples
+    ---------
+    # target adc will ADC 00
+    >>>> ntile=0, nblk=0
+    # declare and set user specified coeffs
+    >>>> coeffs = [136, 255, 255, 137, 255, 225, 255, 136]
+    >>>> rfdc.set_cal_coeffs(ntile, nblk, rfdc.CAL_BLOCK_TSCB, coeffs)
+    {'Coeff0': '136',
+     'Coeff1': '255',
+     'Coeff2': '255',
+     'Coeff3': '137',
+     'Coeff4': '255',
+     'Coeff5': '225',
+     'Coeff6': '255',
+     'Coeff7': '136'}
+
+    # disable user provided coefficients and revert to automatic background calibration
+    >>>> rfdc.disable_user_coeffs(ntile, nblk, rfdc.CAL_BLOCK_TSCB)
+    # must make a call to `get_cal_coeffs()` to confirm they have been reverted.
+    >>>> rfdc.get_cal_coeffs(0,0,rfdc.CAL_BLOCK_TSCB)
+    {'Coeff0': '33489407',
+     'Coeff1': '33489407',
+     'Coeff2': '33489407',
+     'Coeff3': '6029823',
+     'Coeff4': '33489407',
+     'Coeff5': '33489407',
+     'Coeff6': '33489407',
+     'Coeff7': '197119'}
     """
     t = self.parent.transport
 
@@ -1104,6 +1365,13 @@ class RFDC(object):
     :rtype: int
 
     :raises KatcpRequestFail: If KatcpTransport encounters an error
+
+    Examples
+    ---------
+    # get calibration mode
+    >>>> ntile=0, nblk=0
+    >>>> rfdc.get_cal_mode(0,0)
+    2 # indicates mode 2=rfdc.CAL_MODE2 is the current mode
     """
     t = self.parent.transport
 
@@ -1131,6 +1399,12 @@ class RFDC(object):
     :rtype: int
 
     :raises KatcpRequestFail: If KatcpTransport encounters an error
+
+    Examples
+    ---------
+    # set calibration mode for ADC 00
+    >>>> rfdc.set_cal_mode(0,0, rfdc.CAL_MODE1)
+    1 # indicates mode 1=rfdc.CAL_MODE1 has been applied
     """
     t = self.parent.transport
 
@@ -1158,6 +1432,16 @@ class RFDC(object):
     :rtype: dict[str, str]
 
     :raises KatcpRequestFail: If KatcpTransport encounters an error
+
+    Examples
+    ---------
+    # get_output_current for DAC 00
+    >>>> rfdc.get_output_current(0, 0)
+    {'current': '19993'}
+
+    # get output current for DAC 10
+    >>>> rfdc.get_output_current(1, 0)
+    {'current': '19993'}
     """
     t = self.parent.transport
 
@@ -1187,6 +1471,8 @@ class RFDC(object):
     See Xilinx/AMD PG269 for more details on the VOP capabilities of the RFDC. This Only available on
     Gen 3 device.
 
+    Examples
+    ---------
     :param ntile: Tile index of target block to get output current, in the range (0-3)
     :type ntile: int
     :param nblk: Block index of target dac get output current, must be in the range (0-3)
@@ -1198,6 +1484,10 @@ class RFDC(object):
     :rtype: dict[str, str]
 
     :raises KatcpRequestFail: If KatcpTransport encounters an error
+
+    # set output current for DAC00
+    >>>> rfdc.set_vop(0, 0, 34500)
+    {'current': '34475'}
     """
     t = self.parent.transport
 
@@ -1225,6 +1515,11 @@ class RFDC(object):
     :type nblk: int
 
     :return: 0 if disabled, 1 if first nyquist, and 2 for second nyquist (gen 3 devices only). Returns None if converter is disabled.
+
+    Examples
+    ----------
+    >>>> rfdc.get_invsinc_fir(0,0)
+    2 # Nyquist zone 2
     """
     t = self.parent.transport
 
@@ -1253,6 +1548,18 @@ class RFDC(object):
 
     :return: 0 if disabled, 1 if first nyquist, and 2 for second nyquist (gen 3 devices only). Returns None if converter is disabled.
     :rtype: int
+
+    Examples
+    ----------
+    >>>> rfdc.set_invsinc_fir(0,0,rfdc.INVSINC_FIR_DISABLED)
+    0 # disabled
+
+    >>>> rfdc.set_invsinc_fir(0,0,rfdc.INVSINC_FIR_NYQUIST1)
+    1 # nyquist zone 1
+
+    >>>> rfdc.set_invsinc_fir(0,0,rfdc.INVSINC_FIR_NYQUIST2)
+    2 # nyquist zone 2
+
     """
     t = self.parent.transport
 
@@ -1278,6 +1585,11 @@ class RFDC(object):
 
     :return: 1 if filter is enabled; otherwise, returns 0. Returns None if converter is disabled.
     :rtype: int
+
+    Examples
+    ----------
+    >>>> rfdc.invsinc_fir_enabled(0,0)
+    0 # disabled
     """
     t = self.parent.transport
 
@@ -1303,6 +1615,12 @@ class RFDC(object):
 
     :return: 0 if in lowpass mode, 1 if highpass mode. Returns None if converter is disabled.
     :rtype: int
+
+    Examples
+    ----------
+    # get image rejection filter mode for DAC 00
+    >>>> rfdc.get_imr_mode(0,0)
+    2 # high pass
     """
     t = self.parent.transport
 
@@ -1329,6 +1647,16 @@ class RFDC(object):
 
     :return: 0 if in lowpass mode, 1 if highpass mode. Returns None if converter is disabled.
     :rtype: int
+
+    Examples
+    ----------
+    # set image rejection filter to high pass for DAC 00
+    >>>> rfdc.set_imr_mode(0, 0, rfdc.IMR_HIGHPASS)
+    1 # high pass
+
+    # set image rejection filter to lowpass for DAC 00
+    >>>> rfdc.set_imr_mode(0, 0, rfdc.IMR_LOWPASS)
+    0 # lowpass
     """
     t = self.parent.transport
 
