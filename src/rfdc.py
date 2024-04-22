@@ -47,6 +47,35 @@ class RFDC(object):
   ADC_TILE = 0
   DAC_TILE = 1
 
+  # mixer
+  MIX_TYPE_COARSE = 1
+  MIX_TYPE_FINE = 2
+  MIX_TYPE_OFF = 0
+  MIX_TYPE_DISABLED = 3
+
+  MIX_MODE_OFF = 0
+  MIX_MODE_C2C = 1
+  MIX_MODE_C2R = 2
+  MIX_MODE_R2C = 3
+  MIX_MODE_R2R = 4
+
+  MIX_COARSE_OFF = 0
+  MIX_COARSE_FS2 = 2
+  MIX_COARSE_FS4 = 4
+  MIX_COARSE_NFS4 = 8
+  MIX_COARSE_BYPASS = 16
+
+  MIX_SCALE_AUTO = 0
+  MIX_SCALE_1P0 = 1
+  MIX_SCALE_0P7 = 2
+
+  # tile clk out divider
+  FAB_CLK_DIV1 = 1
+  FAB_CLK_DIV2 = 2
+  FAB_CLK_DIV4 = 3
+  FAB_CLK_DIV8 = 4
+  FAB_CLK_DIV16 = 5
+
   # nyquist zones
   NYQUIST_ZONE1 = 1
   NYQUIST_ZONE2 = 2
@@ -388,6 +417,24 @@ class RFDC(object):
     return status
 
 
+  def shutdown(self, ntile, converter_type):
+    """
+    Shutdown target tile. Typical use case is to apply a dynamic setting and then shutdown and startup tile.
+    """
+    t = self.parent.transport
+    args = (ntile, "adc" if converter_type == self.ADC_TILE  else "dac")
+    reply, informs = t.katcprequest(name='rfdc-shutdown', request_timeout=t._timeout, request_args=args)
+
+
+  def startup(self, ntile, converter_type):
+    """
+    Startup target tile. Typical use case is to apply a dynamic setting and then shutdown and startup tile.
+    """
+    t = self.parent.transport
+    args = (ntile, "adc" if converter_type == self.ADC_TILE  else "dac")
+    reply, informs = t.katcprequest(name='rfdc-startup', request_timeout=t._timeout, request_args=args)
+
+
   def get_fabric_clk_freq(self, ntile, converter_type):
     """
     Get the clock frequency at the PL/fifo interface between the adc or dac indicated by "converter_type" on tile "ntile".  "converter_type"
@@ -420,6 +467,55 @@ class RFDC(object):
       return None
     else:
       return float(info)
+
+
+  def get_fab_clk_div_out(self, ntile, converter_type):
+    """
+    Get tile's output clock divider setting
+
+    :param ntile: Tile index of target converter, in the range (0-3)
+    :type ntile: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+
+    :return: Converter tile clk out divider value
+    :rtype: int
+    """
+    t = self.parent.transport
+    args = (ntile, "adc" if converter_type == self.ADC_TILE  else "dac")
+    reply, informs = t.katcprequest(name='rfdc-get-fab-clkdiv-out', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode()
+    if info == "(disabled)": # (disabled) response
+      return None
+    else:
+      fab_clk_div_out = info
+      return int(fab_clk_div_out)
+
+
+  def set_fab_clk_div_out(self, ntile, converter_type, clk_div):
+    """
+    Set tile's output clock divider setting
+
+    :param ntile: Tile index of target converter, in the range (0-3)
+    :type ntile: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+    :param clk_div: Desired divider setting for tile output clock
+
+    :return: Converter tile clk out divider value
+    :rtype: int
+    """
+    t = self.parent.transport
+    args = (ntile, "adc" if converter_type == self.ADC_TILE  else "dac", clk_div)
+    reply, informs = t.katcprequest(name='rfdc-set-fab-clkdiv-out', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode()
+    if info == "(disabled)": # (disabled) response
+      return None
+    else:
+      fab_clk_div_out = info
+      return int(fab_clk_div_out)
 
 
   def get_datatype(self, ntile, nblk, converter_type):
@@ -878,6 +974,9 @@ class RFDC(object):
     """
     Dyanmically configure PLL settings for a converter tile.
 
+    When changing the reference pll reference frequency must call `shutdown()` and `startup()`
+    to reinitialize the tile and relock pll.
+
     :param ntile: Tile index of where target converter block is, in the range (0-3).
     :type ntile: int
     :param converter_type: Represents the target converter type, "adc" or "dac".
@@ -902,6 +1001,10 @@ class RFDC(object):
      'RefClkDivider': 48.0,
      'FeedbackDivider': 3.0,
      'OutputDivider': 0.0}
+
+    # shutdown and startup tile to relock PLL to new frequency
+    >>>> rfdc.shutdown(0,rfdc.ADC_TILE)
+    >>>> rfdc.startup(0,rfdc.ADC_TILE)
     """
     t = self.parent.transport
 
@@ -1742,43 +1845,269 @@ class RFDC(object):
       print(i)
     return True
 
-
-  def report_mixer_status(self, adc_mask, dac_mask):
     """
-    Retrieves and reports mixer settings from rfdc.
+    Set the inverse sinc filter mode; 0 - disabled, 1 - first nyquist, and for gen 3 devices 2 - second nyquist.
 
-    :param adc_mask: 16 bits indicating what ADCs to set. LSB is ADC 00
-    :type adc_mask: int
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param invsinc_fir_mode: inverse sinc filter mode; 0 - disabled, 1 - first nyquist, and for gen 3 devices 2 - second nyquist.
 
-    :param dac_mask: 16 bits indicating what DACs to set. LSB is DAC 00
-    :type dac_mask: int
+    :type invsinc_fir_mode: int
 
-    :return: `True` if completes successfuly, `False` otherwise
-    :rtype: bool
+    :return: 0 if disabled, 1 if first nyquist, and 2 for second nyquist (gen 3 devices only). Returns None if converter is disabled.
+    :rtype: int
 
-    :raises KatcpRequestFail: If KatcpTransport encounters an error
+    Examples
+    ----------
+    >>>> rfdc.set_invsinc_fir(0,0,rfdc.INVSINC_FIR_DISABLED)
+    0 # disabled
+
+    >>>> rfdc.set_invsinc_fir(0,0,rfdc.INVSINC_FIR_NYQUIST1)
+    1 # nyquist zone 1
+
+    >>>> rfdc.set_invsinc_fir(0,0,rfdc.INVSINC_FIR_NYQUIST2)
+    2 # nyquist zone 2
+    """
+
+
+  def set_mixer_mode(self, ntile, nblk, converter_type, mixer_mode, force=1):
+    """
+    Set the mixer mode: 0 - Off, C2C - 1, C2R - 2, R2C - 3, R2R - 4. Updates to the target tile and block are applied immediately
+    by default. To control when updates are applied set the `force` parameter to zero and manually call `update_event`.
+
+    Constants are available as: MIX_MODE_OFF, MIX_MODE_C2C, MIX_MODE_R2C, MIX_MODE_R2R
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+    :param mixer_mode: Target mixer operating mode
+    :type mixer_mode: int
+    :param force: Immediately update mixer mode. Set to zero to manually trigger upadte with `update_event`
+    :type force: int
+
+    :return: None if converter is disabled.
+
+    Examples
+    -----------
+    # update the mixer mode, it is immediately applied
+    >>>> rfdc.set_mixer_mode(rfdc.MIX_MODE_C2C, 0, 0, rfdc.ADC_TILE)
+
+    # set two different mixers and apply updates at the same time
+    >>>> rfdc.set_mixer_mode(rfdc.MIX_MODE_C2C, 0, 0, rfdc.ADC_TILE, force=0)
+    >>>> rfdc.set_mixer_mode(rfdc.MIX_MODE_C2C, 1, 0, rfdc.ADC_TILE, force=0)
+    >>>> rfdc.update_event(0, 0, rfdc.ADC_TILE, rfdc.EVENT_MIXER)
     """
     t = self.parent.transport
-    for tile in range(0,4):
-      for blk in range(0,4):
-        if (adc_mask >> (tile*4+blk)) & 1:
-          args = (tile, blk, "adc")
-          reply, informs = t.katcprequest(name='rfdc-report-mixer', request_timeout=t._timeout, request_args=args)
-          print("ADC {:d} {:d} mixer settings:".format(tile,blk))
-          for i in informs:
-            print("\t" + i.arguments[0].decode())
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac", mixer_mode, force)
+    reply, informs = t.katcprequest(name='rfdc-set-mixer-mode', request_timeout=t._timeout, request_args=args)
 
-    for tile in range(0,4):
-      for blk in range(0,4):
-        if (dac_mask >> (tile*4+blk)) & 1:
-          args = (tile, blk, "dac")
-          reply, informs = t.katcprequest(name='rfdc-report-mixer', request_timeout=t._timeout, request_args=args)
-          print("DAC {:d} {:d} mixer settings:".format(tile,blk))
-          for i in informs:
-            print("\t" + i.arguments[0].decode())
 
-    return True
+  def set_fine_mixer_freq(self, ntile, nblk, converter_type, fine_freq, fine_phase=0, force=1):
+    """
+    Updates the fine mixer frequency in MHz and phase offset in degrees. Updates to the target tile and block are applied immediately by
+    default. To control when updates are applied set the `force` parameter to zero and manually call `update_event`.
 
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+    :param fine_freq: Target fine mixer operating frequency in MHz. Range (-fs/2, fs/2]
+    :type fine_freq: float
+    :param fine_phase: Target fine mixer phase offset in degrees. Range (-180, 180]
+    :type fine_phase: float
+    :param force: Immediately update mixer mode. Set to zero to manually trigger upadte with `update_event`
+    :type force: int
+
+    :return: None if converter is disabled.
+
+    Examples
+    -----------
+    # update fine frequency mixer, update is immediately applied
+    >>>> rfdc.set_fine_mixer_freq(0, 0, rfdc.ADC_TILE, -983.04)
+
+    # set fine frequency mixer for two different converters and apply updates at the same time
+    >>>> rfdc.set_fine_mixer_freq(0, 0, rfdc.ADC_TILE, -983.04, force=0)
+    >>>> rfdc.set_fine_mixer_freq(0, 1, rfdc.ADC_TILE, -983.04, force=0)
+    >>>> rfdc.update_event(0, 0, rfdc.ADC_TILE, rfdc.EVENT_MIXER)
+    """
+    t = self.parent.transport
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac", fine_freq, fine_phase, force)
+    reply, informs = t.katcprequest(name='rfdc-update-nco', request_timeout=t._timeout, request_args=args)
+
+
+  def set_mixer_type(self, ntile, nblk, converter_type, mixer_type, force=1):
+    """
+    Set the mixer type: Coarse - 1, Fine - 2, Off - 0, Disabled - 3. Updates to the target tile and block are applied immediately
+    by default. To control when updates are applied set the `force` parameter to zero and manually call `update_event`.
+
+    Constants are available as: MIX_TYPE_COARSE, MIX_TYPE_FINE, MIX_TYPE_OFF, MIX_TYPE_DISABLED
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+    :param mixer_type: Target mixer type
+    :type mixer_type: int
+    :param force: Immediately update mixer mode. Set to zero to manually trigger upadte with `update_event`
+    :type force: int
+
+    :return: None if converter is disabled.
+
+    Examples
+    -----------
+    # update the mixer mode, it is immediately applied
+    >>>> rfdc.set_mixer_type(rfdc.MIX_TYPE_COARSE, 0, 0, rfdc.ADC_TILE)
+
+    # set two different mixers and apply updates at the same time
+    >>>> rfdc.set_mixer_type(rfdc.MIX_TYPE_COARSE, 0, 0, rfdc.ADC_TILE, force=0)
+    >>>> rfdc.set_mixer_type(rfdc.MIX_MODE_COARSE, 0, 1, rfdc.ADC_TILE, force=0)
+    >>>> rfdc.update_event(0, 0, rfdc.ADC_TILE, rfdc.EVENT_MIXER)
+    """
+    t = self.parent.transport
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac", mixer_type, force)
+    reply, informs = t.katcprequest(name='rfdc-set-mixer-type', request_timeout=t._timeout, request_args=args)
+
+
+  def set_coarse_mixer_freq(self, ntile, nblk, converter_type, coarse_mixer_freq, force=1):
+    """
+    Set the coarse mixer frequency: 16 (bypass), 8 (-fs/4), 4 (fs/4), 2 (fs/2), 0 (off). Updates to the target tile and block are applied
+    immediately by default. To control when updates are applied set the `force` parameter to zero and manually call `update_event`.
+
+    Constants are available as: MIX_COARSE_BYPASS, MIX_COARSE_NFS4, MIX_COARSE_FS4, MIX_COARSE_FS2, MIX_COARSE_OFF.
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+    :param coarse_mixer_freq: Target coarse mixer frequency
+    :type coarse_mixer_freq: int
+    :param force: Immediately update mixer mode. Set to zero to manually trigger upadte with `update_event`
+    :type force: int
+
+    :return: None if converter is disabled.
+
+    Examples
+    -----------
+    # update the mixer mode, it is immediately applied
+    >>>> rfdc.set_coarse_mixer_freq(0, 0, rfdc.ADC_TILE, rfdc.MIX_COARSE_NFS4)
+
+    # set two different mixers and apply updates at the same time
+    >>>> rfdc.set_coarse_mixer_freq(0, 0, rfdc.ADC_TILE, rfdc.MIX_COARSE_NFS4)
+    >>>> rfdc.set_coarse_mixer_freq(0, 1, rfdc.ADC_TILE, rfdc.MIX_COARSE_NFS4)
+    >>>> rfdc.update_event(0, 0, rfdc.ADC_TILE, rfdc.EVENT_MIXER)
+    """
+    t = self.parent.transport
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac", coarse_mixer_freq, force)
+    reply, informs = t.katcprequest(name='rfdc-set-coarse-mixer-freq', request_timeout=t._timeout, request_args=args)
+
+  def set_mixer_scale(self, ntile, nblk, converter_type, mixer_scale, force=1):
+    """
+    Set gain correction factor for fine frequency mixer: 0 (Auto), 1 (1.0), 2 (0.7). Updates to the target tile and block are applied
+    immediately by default. To control when updates are applied set the `force` parameter to zero and manually call `update_event`.
+
+    Constants are available as: MIX_SCALE_AUTO, MIX_SCALE_1P0, MIX_SCALE_0P7
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+    :param mixer_scale: Gain correction factor for fine frequency mixer
+    :type mixer_scale: int
+    :param force: Immediately update mixer mode. Set to zero to manually trigger upadte with `update_event`
+    :type force: int
+
+    :return: None if converter is disabled.
+
+    Examples
+    -----------
+    # update scale factor for fine frequency mixer, it is immediately applied
+    >>>> rfdc.set_mixer_scale(0, 0, rfdc.ADC_TILE, rfdc.MIX_SCALE_0P7)
+
+    # set for two different mixers and apply updates at the same time
+    >>>> rfdc.set_mixer_scale(0, 0, rfdc.ADC_TILE, rfdc.MIX_SCALE_0P7)
+    >>>> rfdc.set_mixer_scale(0, 1, rfdc.ADC_TILE, rfdc.MIX_SCALE_0P7)
+    >>>> rfdc.update_event(0, 0, rfdc.ADC_TILE, rfdc.EVENT_MIXER)
+    """
+    t = self.parent.transport
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac", mixer_scale, force)
+    reply, informs = t.katcprequest(name='rfdc-set-mixer-scale', request_timeout=t._timeout, request_args=args)
+
+
+  def set_mixer_event_source(self, ntile, nblk, converter_type, event_source):
+    """
+    Set mixer event source.
+
+    Constants are available as:
+      EVNT_SRC_IMMEDIAT = 0 # Update after register write (not available on dual-tile adcs)
+      EVNT_SRC_SLICE = 1    # Update using SLICE (not available on dual-tile adcs)
+      EVNT_SRC_TILE = 2     # Update using TILE
+      EVNT_SRC_SYSREF = 3   # Update using SYSREF
+      EVNT_SRC_MARKER = 4   # update using MARKER
+      EVNT_SRC_PL = 5       # update using PL event
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+    :param event_source: Event source that will trigger update to parameters
+    :type event_source: int
+
+    :return: None if converter is disabled.
+
+    Examples
+    -----------
+    >>>> rfdc.set_mixer_event_source(0, 0, rfdc.ADC_TILE, rfdc.EVNT_SRC_SYSREF)
+    """
+    t = self.parent.transport
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac", event_source)
+    reply, informs = t.katcprequest(name='rfdc-set-mixer-event-source', request_timeout=t._timeout, request_args=args)
+
+
+  def get_mixer_settings(self, ntile, nblk, converter_type):
+    """
+    Get mixer configuration settings for a target converter
+
+    :param ntile: Tile index of where target converter block is, in the range (0-3)
+    :type ntile: int
+    :param nblk: Block index within target converter tile, in the range (0-3)
+    :type nblk: int
+    :param converter_type: Represents the target converter type, "adc" or "dac"
+    :type converter_type: str
+
+    :return: Dictionary with mixer configurations PLL settings, empty dictionary if tile/block is disabled
+    :rtype: dict[str, float]
+    """
+
+    t = self.parent.transport
+
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE  else "dac")
+    reply, informs = t.katcprequest(name='rfdc-get-mixer-settings', request_timeout=t._timeout, request_args=args)
+
+    mixer_config = {}
+    info = informs[0].arguments[0].decode().split(', ')
+    if len(info) == 1: # (disabled) response
+      return mixer_config
+
+    for stat in info:
+      k,v = stat.split(' ')
+      mixer_config[k] = float(v)
+
+    return mixer_config
 
   def get_adc_snapshot(self, ntile, nblk):
     """
