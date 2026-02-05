@@ -77,6 +77,22 @@ class RFDC(object):
   FAB_CLK_DIV8 = 4
   FAB_CLK_DIV16 = 5
 
+  # dec/inerp factors
+  INTERP_DEC_OFF = 0
+  INTERP_DEC_1X  = 1
+  INTERP_DEC_2X  = 2
+  INTERP_DEC_3X  = 3
+  INTERP_DEC_4X  = 4
+  INTERP_DEC_5X  = 5
+  INTERP_DEC_6X  = 6
+  INTERP_DEC_8X  = 7
+  INTERP_DEC_10X = 10
+  INTERP_DEC_12X = 12
+  INTERP_DEC_16X = 16
+  INTERP_DEC_20X = 20
+  INTERP_DEC_24X = 24
+  INTERP_DEC_40X = 40
+
   # nyquist zones
   NYQUIST_ZONE1 = 1
   NYQUIST_ZONE2 = 2
@@ -708,6 +724,67 @@ class RFDC(object):
       return None
     else:
       return int(info)
+
+
+  def get_dec_factor(self, ntile, nblk):
+    """
+    Get the decimation factor for specified adc
+
+    :param ntile: Target ADC tile index, in the range (0-3)
+    :type ntile: int
+    :param nblk: Target block index within ADC tile, in the range (0-3)
+    :type nblk: int
+
+    :return: Current decimation factor. Returns None if converter is disabled.
+    :rtype: int
+
+    Examples
+    ---------
+    # get the decimation factor for ADC 00
+    >>>> rfdc.get_dec_factor(0,0)
+    4 # Decimation factor of 4x
+
+    # get the decimation factor for ADC 21
+    >>>> rfdc.get_dec_factor(2,1)
+    8 # Decimation factor of 8x
+    """
+    t = self.parent.transport
+    args = (ntile, nblk,)
+    reply, informs = t.katcprequest(name='rfdc-get-dec-factor', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return None
+    else:
+      dec_factor = info[1]
+      return int(dec_factor)
+
+  def set_dec_factor(self, ntile, nblk, dec_factor):
+    """
+    TODO: this method is not complete, the remote server sets the decimation factor and then returns a readback value. Changing the
+    decimation factor is a multiple step process (disable fifo, change clock, clear fifo interrupt, etc.). More work needs to be done to
+    properly go through changing the dec factor
+
+    Set the decimation factor for specified ADC
+
+    :param ntile: Target ADC tile index, in the range (0-3)
+    :type ntile: int
+    :param nblk: Target block index within ADC tile, in the range (0-3)
+    :type nblk: int
+
+    :return: Current decimation factor. Returns None if converter is disabled.
+    :rtype: int
+    """
+    t = self.parent.transport
+    args = (ntile, nblk, dec_factor)
+    reply, informs = t.katcprequest(name='rfdc-set-dec-factor', request_timeout=t._timeout, request_args=args)
+
+    info = informs[0].arguments[0].decode().split(' ')
+    if len(info) == 1: # (disabled) response
+      return None
+    else:
+      dec_factor = info[1]
+      return int(dec_factor)
 
 
   def get_nyquist_zone(self, ntile, nblk, converter_type):
