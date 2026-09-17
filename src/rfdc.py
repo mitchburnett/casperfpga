@@ -85,7 +85,7 @@ class RFDC(object):
   INTERP_DEC_4X  = 4
   INTERP_DEC_5X  = 5
   INTERP_DEC_6X  = 6
-  INTERP_DEC_8X  = 7
+  INTERP_DEC_8X  = 8
   INTERP_DEC_10X = 10
   INTERP_DEC_12X = 12
   INTERP_DEC_16X = 16
@@ -2467,6 +2467,9 @@ class RFDC(object):
 
   def get_en_intr(self, ntile, nblk, converter_type):
     """
+    get currently enabled interrupt flags
+
+    TODO: test and document
     """
     t = self.parent.transport
 
@@ -2477,7 +2480,7 @@ class RFDC(object):
     info = informs[0].arguments[0].decode().split(' ')
     print(info)
     if len(info) == 1: # (disabled) response
-      return intr_status
+      return enabled_intr
     else:
       mask = int(info[1])
 
@@ -2485,6 +2488,9 @@ class RFDC(object):
 
   def set_en_intr(self, ntile, nblk, converter_type, interrupt_mask):
     """
+    enable interrupt flags defined by target `interrupt_mask`
+
+    TODO: test and document
     """
     t = self.parent.transport
 
@@ -2495,7 +2501,7 @@ class RFDC(object):
     info = informs[0].arguments[0].decode().split(' ')
     print(info)
     if len(info) == 1: # (disabled) response
-      return intr_status
+      return enabled_intr
     else:
       mask = int(info[1])
 
@@ -2503,6 +2509,9 @@ class RFDC(object):
 
   def get_intr_status(self, ntile, nblk, converter_type):
     """
+    get current active interrupt flags
+
+    TODO: test and document
     """
     t = self.parent.transport
 
@@ -2518,4 +2527,36 @@ class RFDC(object):
       mask = int(info[1])
 
     return self.parse_interrupt_mask(mask)
+
+  def disable_interrupts(self, ntile, nblk, converter_type, interrupt_mask):
+    """
+    disable target interrupts defined by `interrupt_mask`
+
+    TODO: test and document
+    """
+    t = self.parent.transport
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE else "dac", interrupt_mask)
+    reply, informs = t.katcprequest(name='rfdc-disable-inter', request_timeout=t._timeout, request_args=args)
+
+    disable_intr = {}
+    info = informs[0].arguments[0].decode().split(' ')
+    print(info)
+    if len(info) == 1: # (disabled) response
+      return disable_intr
+    else:
+      mask = int(info[1])
+
+    return self.parse_interrupt_mask(mask)
+
+  def clear_interrupt(self, ntile, nblk, converter_type, interrupt_mask):
+    """
+    clear an active interrupt flag
+
+    returns nothing, assumes worked
+
+    TODO: test and document
+    """
+    t = self.parent.transport
+    args = (ntile, nblk, "adc" if converter_type == self.ADC_TILE else "dac", interrupt_mask)
+    reply, informs = t.katcprequest(name='rfdc-clr-intr', request_timeout=t._timeout, request_args=args)
 
